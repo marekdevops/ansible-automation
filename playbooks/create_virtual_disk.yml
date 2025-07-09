@@ -1,0 +1,26 @@
+---
+- name: Create virtual disk for testing LVM
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  tasks:
+    - name: Create virtual disk file
+      command: dd if=/dev/zero of=/tmp/virtual_disk.img bs=1M count=1024
+      args:
+        creates: /tmp/virtual_disk.img
+        
+    - name: Setup loop device
+      command: losetup -f --show /tmp/virtual_disk.img
+      register: loop_device
+      
+    - name: Display created loop device
+      debug:
+        msg: |
+          Virtual disk created: {{ loop_device.stdout }}
+          You can now use this device name (without /dev/) with create_lvm role
+          Example: disk="{{ loop_device.stdout | regex_replace('/dev/', '') }}"
+          
+    - name: Store loop device info
+      set_fact:
+        virtual_disk_device: "{{ loop_device.stdout | regex_replace('/dev/', '') }}"

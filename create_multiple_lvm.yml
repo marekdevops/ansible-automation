@@ -1,0 +1,25 @@
+---
+- name: Create multiple LVM volumes
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  tasks:
+    - name: Create data volume
+      include_role:
+        name: create_lvm
+      vars:
+        disk: "sdb"
+        mount_destination: "/data"
+        volume_group_name: "data_vg"
+        logical_volume_name: "data_lv"
+        
+    - name: Create backup volume
+      include_role:
+        name: create_lvm
+      vars:
+        disk: "sdc"
+        mount_destination: "/backup"
+        volume_group_name: "backup_vg"
+        logical_volume_name: "backup_lv"
+        filesystem_type: "xfs"

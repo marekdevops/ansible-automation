@@ -21,10 +21,11 @@
     unused_disks: "{{ unused_disks | default([]) + [item] }}"
   loop: "{{ block_devices }}"
   when:
-    - item.type == "disk"
+    - item.type in ["disk", "loop"]
     - item.children is not defined or item.children | length == 0
-    - item.mountpoint is not defined
+    - item.mountpoint is not defined or (item.mountpoints is defined and item.mountpoints == [None])
     - item.size is defined
+    - item.ro is defined and not item.ro  # Tylko urządzenia read-write
   tags: lsblk
 
 - name: Display block devices summary

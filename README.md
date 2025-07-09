@@ -106,7 +106,9 @@ ansible-playbook -i inventory playbooks/create_multiple_lvm.yml --tags create_lv
 │   ├── create_lvm_playbook.yml            # Podstawowy playbook LVM
 │   ├── create_lvm_custom.yml              # LVM z konfiguracją
 │   ├── create_multiple_lvm.yml            # Tworzenie wielu LVM
-│   └── complete_disk_workflow.yml         # Kompletny workflow
+│   ├── complete_disk_workflow.yml         # Kompletny workflow
+│   ├── create_virtual_disk.yml            # Tworzenie wirtualnego dysku
+│   └── diagnose_disk_issue.yml            # Diagnostyka problemów
 ├── inventory                               # Plik inventory
 └── README.md                              # Ten plik
 ```
@@ -343,11 +345,61 @@ ansible-playbook -i inventory playbooks/create_lvm_playbook.yml --limit server1
 ansible-playbook -i inventory playbooks/disk_usage_report_playbook.yml --tags lsblk
 ```
 
-## 📞 Wsparcie
+## 🔧 Rozwiązywanie problemów
 
-Dla każdej roli dostępna jest szczegółowa dokumentacja w plikach `README.md`:
-- `roles/disk_usage_report/README.md`
-- `roles/create_lvm/README.md`
+### **Problem: "Disk /dev/sdb does not exist"**
+
+Jeśli otrzymujesz błąd że dysk nie istnieje, mimo że był wykazany w raporcie:
+
+```bash
+# 1. Sprawdź rzeczywisty stan dysków
+ansible-playbook -i inventory playbooks/diagnose_disk_issue.yml --tags lsblk
+
+# 2. Sprawdź konkretny dysk
+ansible-playbook -i inventory playbooks/diagnose_disk_issue.yml --extra-vars "validate_disk=sdb" --tags disk_validation
+
+# 3. Pokaż dostępne dyski
+ansible-playbook -i inventory playbooks/disk_usage_report_playbook.yml --tags lsblk
+```
+
+**Częste przyczyny:**
+- Dysk był w raporcie z innego systemu/momentu
+- Dysk został usunięty lub odłączony
+- Błędna nazwa dysku (sprawdź `lsblk` bezpośrednio)
+
+### **Problem: Brak dostępnych dysków do LVM**
+
+```bash
+# Utwórz wirtualny dysk do testów
+ansible-playbook -i inventory playbooks/create_virtual_disk.yml
+
+# Następnie użyj loop6 do testów
+ansible-playbook -i inventory playbooks/create_lvm_playbook.yml --extra-vars "disk=loop6 mount_destination=/test"
+```
+
+### **Problem: "Bad size specification" w LVM**
+
+Naprawiono poprzez użycie `100%FREE` zamiast parsowania rozmiaru z `vgdisplay`.
+
+### **Problem: Role nie są znajdowane**
+
+```bash
+# Sprawdź czy ansible.cfg jest skonfigurowany
+cat ansible.cfg
+
+# Uruchom z pełną ścieżką
+ansible-playbook -i inventory ./playbooks/nazwa_playbook.yml
+```
+
+### **Diagnostyka systemowa**
+
+```bash
+# Pełna diagnostyka dysków
+ansible-playbook -i inventory playbooks/diagnose_disk_issue.yml
+
+# Pokazanie rekomendacji
+ansible-playbook -i inventory playbooks/diagnose_disk_issue.yml --tags recommendations
+```
 
 ---
 

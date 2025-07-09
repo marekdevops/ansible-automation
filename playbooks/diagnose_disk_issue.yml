@@ -1,0 +1,105 @@
+---
+- name: Diagnose disk availability issue
+  hosts: localhost
+  gather_facts: yes
+  become: yes
+  
+  tasks:
+    - name: Run disk analysis first
+      include_role:
+        name: disk_usage_report
+      tags: [disk_analysis, lsblk]
+    
+    - name: Show available unused disks from report
+      debug:
+        msg: |
+          === AVAILABLE UNUSED DISKS ===
+          {% if unused_disks is defined and unused_disks | length > 0 %}
+          Found {{ unused_disks | length }} unused disk(s):
+          {% for disk in unused_disks %}
+          - {{ disk.name }} ({{ disk.size }}) - Full path: /dev/{{ disk.name }}
+          {% endfor %}
+          
+          To use any of these disks, run:
+          ansible-playbook -i inventory playbooks/create_lvm_playbook.yml \
+            --extra-vars "disk=DISK_NAME mount_destination=MOUNT_PATH"
+          
+          For example:
+          ansible-playbook -i inventory playbooks/create_lvm_playbook.yml \
+            --extra-vars "disk={{ unused_disks[0].name }} mount_destination=/data"
+          {% else %}
+          No unused disks found in the system.
+          
+          To create a virtual disk for testing, run:
+          ansible-playbook -i inventory playbooks/create_virtual_disk.yml
+          {% endif %}
+          
+          === SYSTEM DISK STATUS ===
+      tags: [disk_analysis, lsblk]
+    
+    - name: Show all block devices in detail
+      shell: "lsblk -o NAME,TYPE,SIZE,MOUNTPOINT,FSTYPE,MODEL"
+      register: detailed_lsblk
+      changed_when: false
+      tags: [disk_analysis, lsblk]
+    
+    - name: Display detailed block device information
+      debug:
+        msg: |
+          {{ detailed_lsblk.stdout }}
+      tags: [disk_analysis, lsblk]
+    
+    - name: Check what /dev/sd* devices exist
+      shell: "ls -la /dev/sd* 2>/dev/null || echo 'No /dev/sd* devices found'"
+      register: sd_devices
+      changed_when: false
+      tags: [disk_analysis, lsblk]
+    
+    - name: Show physical disk devices
+      debug:
+        msg: |
+          === PHYSICAL DISK DEVICES ===
+          {{ sd_devices.stdout }}
+      tags: [disk_analysis, lsblk]
+    
+    - name: Validate specific disk if provided
+      stat:
+        path: "/dev/{{ validate_disk }}"
+      register: disk_validation
+      when: validate_disk is defined
+      tags: disk_validation
+    
+    - name: Show disk validation result
+      debug:
+        msg: |
+          === DISK VALIDATION RESULT ===
+          Checking disk: /dev/{{ validate_disk }}
+          {% if disk_validation.stat.exists %}
+          ✅ Disk exists and can be used for LVM
+          {% else %}
+          ❌ Disk does not exist in the system
+          {% endif %}
+      when: validate_disk is defined
+      tags: disk_validation
+    
+    - name: Provide usage recommendations
+      debug:
+        msg: |
+          === USAGE RECOMMENDATIONS ===
+          
+          1. To see available disks:
+             ansible-playbook -i inventory playbooks/diagnose_disk_issue.yml --tags lsblk
+          
+          2. To validate a specific disk:
+             ansible-playbook -i inventory playbooks/diagnose_disk_issue.yml \
+               --extra-vars "validate_disk=sdb" --tags disk_validation
+          
+          3. To create a virtual disk for testing:
+             ansible-playbook -i inventory playbooks/create_virtual_disk.yml
+          
+          4. To create LVM on available disk:
+             ansible-playbook -i inventory playbooks/create_lvm_playbook.yml \
+               --extra-vars "disk=AVAILABLE_DISK mount_destination=/path"
+          
+          Remember: Only use disks that appear in the "unused disks" report!
+      tags: [recommendations]

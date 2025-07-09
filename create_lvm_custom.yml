@@ -1,0 +1,15 @@
+---
+- name: Create custom LVM setup
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  vars:
+    disk: "sdc"
+    mount_destination: "/backup"
+    volume_group_name: "backup_vg"
+    logical_volume_name: "backup_lv"
+    filesystem_type: "xfs"
+  
+  roles:
+    - create_lvm

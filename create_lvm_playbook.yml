@@ -1,0 +1,10 @@
+---
+- name: Create LVM volume using create_lvm role
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  roles:
+    - role: create_lvm
+      disk: "sdb"
+      mount_destination: "/data"

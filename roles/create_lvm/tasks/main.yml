@@ -56,18 +56,20 @@
     state: present
   tags: create_lvm
 
-- name: Get available space in volume group
-  shell: "vgdisplay {{ volume_group_name }} | grep 'Free  PE / Size' | awk '{print $7}' | sed 's/<//'"
-  register: vg_free_space
+- name: Check if logical volume already exists
+  shell: "lvdisplay /dev/{{ volume_group_name }}/{{ logical_volume_name }} 2>/dev/null && echo 'exists' || echo 'not_exists'"
+  register: lv_check
   changed_when: false
+  failed_when: false
   tags: create_lvm
 
 - name: Create logical volume using all available space
   lvol:
     vg: "{{ volume_group_name }}"
     lv: "{{ logical_volume_name }}"
-    size: "{{ vg_free_space.stdout }}"
+    size: "100%FREE"
     state: present
+  when: lv_check.stdout == "not_exists"
   tags: create_lvm
 
 - name: Create filesystem on logical volume
@@ -108,6 +110,12 @@
   changed_when: false
   tags: create_lvm
 
+- name: Get current volume group information
+  shell: "LANG=C vgdisplay {{ volume_group_name }} | grep 'VG Size' | awk '{print $3, $4}'"
+  register: vg_size_info
+  changed_when: false
+  tags: create_lvm
+
 - name: Display LVM creation summary
   debug:
     msg: |
@@ -119,7 +127,7 @@
       Device Path: {{ lvm_device_path }}
       Filesystem: {{ filesystem_type }}
       Mount Point: {{ mount_destination }}
-      Available Space: {{ vg_free_space.stdout }}
+      Volume Group Size: {{ vg_size_info.stdout }}
       
       Mount verification:
       {{ mount_verification.stdout }}
@@ -137,6 +145,6 @@
       device_path: "{{ lvm_device_path }}"
       filesystem_type: "{{ filesystem_type }}"
       mount_point: "{{ mount_destination }}"
-      available_space: "{{ vg_free_space.stdout }}"
+      vg_size: "{{ vg_size_info.stdout }}"
       creation_date: "{{ ansible_date_time.iso8601 }}"
   tags: create_lvm
