@@ -1,0 +1,68 @@
+---
+- name: Demonstrate directory creation capabilities
+  hosts: localhost
+  gather_facts: yes
+  become: yes
+  
+  tasks:
+    - name: Show current available disks
+      include_role:
+        name: disk_usage_report
+      tags: [demo, lsblk]
+    
+    - name: Test 1 - Simple directory creation
+      debug:
+        msg: |
+          === TEST 1: Simple Directory ===
+          Testing: /simple_test
+          This will create a single directory if it doesn't exist.
+      tags: demo
+    
+    - name: Test 2 - Nested directory creation
+      debug:
+        msg: |
+          === TEST 2: Nested Directories ===
+          Testing: /opt/demo/nested/deep/structure
+          This will create all parent directories automatically.
+      tags: demo
+    
+    - name: Test 3 - Application-style paths
+      debug:
+        msg: |
+          === TEST 3: Application Paths ===
+          Examples that work automatically:
+          - /var/lib/mysql/data
+          - /opt/applications/tomcat
+          - /srv/docker/volumes
+          - /home/apps/production/logs
+          
+          All these paths will be created recursively with proper permissions.
+      tags: demo
+    
+    - name: Show example commands
+      debug:
+        msg: |
+          === EXAMPLE COMMANDS ===
+          
+          # Simple path:
+          ansible-playbook -i inventory playbooks/create_lvm_playbook.yml \
+            --extra-vars "disk=loop6 mount_destination=/data"
+          
+          # Nested path:
+          ansible-playbook -i inventory playbooks/create_lvm_playbook.yml \
+            --extra-vars "disk=loop6 mount_destination=/opt/applications/tomcat"
+          
+          # Deep nested path:
+          ansible-playbook -i inventory playbooks/create_lvm_playbook.yml \
+            --extra-vars "disk=loop6 mount_destination=/srv/production/apps/backend/data"
+          
+          # Database path:
+          ansible-playbook -i inventory playbooks/create_lvm_playbook.yml \
+            --extra-vars "disk=loop6 mount_destination=/var/lib/postgresql/data"
+          
+          All directories will be created automatically with:
+          - Mode: 755
+          - Owner: root
+          - Group: root
+          - Recursive creation of parent directories
+      tags: demo

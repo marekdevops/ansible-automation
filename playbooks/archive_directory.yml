@@ -1,0 +1,203 @@
+---
+- name: Archive and compress directory with space validation
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  vars:
+    # Default values - can be overridden with --extra-vars
+    source_directory: "{{ source_dir | default('') }}"
+    archive_name: "{{ archive_name_override | default('') }}"
+    local_destination: "{{ local_dest | default('./backups') }}"
+    compression_level: "{{ compression | default('6') }}"
+    cleanup_remote: "{{ cleanup | default(false) }}"
+    
+  tasks:
+    - name: Validate required parameters
+      fail:
+        msg: "Parameter 'source_dir' is required. Use --extra-vars 'source_dir=/path/to/directory'"
+      when: source_directory == "" or source_directory is undefined
+      tags: [archive, validation]
+    
+    - name: Check if source directory exists
+      stat:
+        path: "{{ source_directory }}"
+      register: source_check
+      tags: [archive, validation]
+    
+    - name: Fail if source directory does not exist
+      fail:
+        msg: "Source directory {{ source_directory }} does not exist"
+      when: not source_check.stat.exists or not source_check.stat.isdir
+      tags: [archive, validation]
+    
+    - name: Get source directory size
+      shell: "du -sb {{ source_directory }} | cut -f1"
+      register: source_size
+      changed_when: false
+      tags: [archive, validation]
+    
+    - name: Get available space in /tmp
+      shell: "df -B1 /tmp | tail -1 | awk '{print $4}'"
+      register: tmp_space
+      changed_when: false
+      tags: [archive, validation]
+    
+    - name: Calculate required space (source size + 20% buffer)
+      set_fact:
+        source_size_bytes: "{{ source_size.stdout | int }}"
+        available_space_bytes: "{{ tmp_space.stdout | int }}"
+        required_space_bytes: "{{ (source_size.stdout | int * 1.2) | int }}"
+      tags: [archive, validation]
+    
+    - name: Display space information
+      debug:
+        msg: |
+          === SPACE VALIDATION ===
+          Source directory: {{ source_directory }}
+          Source size: {{ (source_size_bytes | int / 1024 / 1024) | round(2) }} MB
+          Available in /tmp: {{ (available_space_bytes | int / 1024 / 1024) | round(2) }} MB
+          Required space (with buffer): {{ (required_space_bytes | int / 1024 / 1024) | round(2) }} MB
+          {% if available_space_bytes | int >= required_space_bytes | int %}
+          ✅ Sufficient space available
+          {% else %}
+          ❌ Insufficient space in /tmp
+          {% endif %}
+      tags: [archive, validation]
+    
+    - name: Fail if insufficient space
+      fail:
+        msg: |
+          Insufficient space in /tmp directory.
+          Required: {{ (required_space_bytes | int / 1024 / 1024) | round(2) }} MB
+          Available: {{ (available_space_bytes | int / 1024 / 1024) | round(2) }} MB
+      when: available_space_bytes | int < required_space_bytes | int
+      tags: [archive, validation]
+    
+    - name: Generate archive filename
+      set_fact:
+        archive_filename: "{{ archive_name if archive_name != '' else (source_directory | basename) + '_' + ansible_date_time.date + '_' + ansible_date_time.time.replace(':', '') + '.tar.gz' }}"
+        archive_full_path: "/tmp/{{ archive_name if archive_name != '' else (source_directory | basename) + '_' + ansible_date_time.date + '_' + ansible_date_time.time.replace(':', '') + '.tar.gz' }}"
+      tags: [archive, create]
+    
+    - name: Display archive information
+      debug:
+        msg: |
+          === ARCHIVE CREATION ===
+          Source: {{ source_directory }}
+          Archive name: {{ archive_filename }}
+          Archive path: {{ archive_full_path }}
+          Compression level: {{ compression_level }}
+      tags: [archive, create]
+    
+    - name: Create tar.gz archive with progress
+      shell: |
+        cd "{{ source_directory | dirname }}" && \
+        tar -czf "{{ archive_full_path }}" \
+            --verbose \
+            --totals \
+            --checkpoint=1000 \
+            --checkpoint-action=echo='%T: %d/%T files archived' \
+            "{{ source_directory | basename }}"
+      environment:
+        GZIP: "-{{ compression_level }}"
+      register: tar_result
+      tags: [archive, create]
+    
+    - name: Get created archive size
+      stat:
+        path: "{{ archive_full_path }}"
+      register: archive_stat
+      tags: [archive, create]
+    
+    - name: Display archive creation results
+      debug:
+        msg: |
+          === ARCHIVE CREATED ===
+          Archive: {{ archive_full_path }}
+          Original size: {{ (source_size_bytes | int / 1024 / 1024) | round(2) }} MB
+          Compressed size: {{ (archive_stat.stat.size / 1024 / 1024) | round(2) }} MB
+          Compression ratio: {{ ((1 - (archive_stat.stat.size / source_size_bytes | int)) * 100) | round(1) }}%
+          Created: {{ ansible_date_time.iso8601 }}
+      tags: [archive, create]
+    
+    - name: Create local destination directory
+      file:
+        path: "{{ local_destination }}"
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+      run_once: true
+      tags: [archive, download]
+    
+    - name: Copy archive to localhost
+      fetch:
+        src: "{{ archive_full_path }}"
+        dest: "{{ local_destination }}/{{ inventory_hostname }}_{{ archive_filename }}"
+        flat: yes
+      tags: [archive, download]
+    
+    - name: Get local archive info
+      stat:
+        path: "{{ local_destination }}/{{ inventory_hostname }}_{{ archive_filename }}"
+      register: local_archive_stat
+      delegate_to: localhost
+      tags: [archive, download]
+    
+    - name: Display download results
+      debug:
+        msg: |
+          === DOWNLOAD COMPLETED ===
+          Remote archive: {{ archive_full_path }}
+          Local archive: {{ local_destination }}/{{ inventory_hostname }}_{{ archive_filename }}
+          Size: {{ (local_archive_stat.stat.size / 1024 / 1024) | round(2) }} MB
+          ✅ Archive successfully copied to localhost
+      tags: [archive, download]
+    
+    - name: Cleanup remote archive
+      file:
+        path: "{{ archive_full_path }}"
+        state: absent
+      when: cleanup_remote | bool
+      tags: [archive, cleanup]
+    
+    - name: Display cleanup status
+      debug:
+        msg: |
+          === CLEANUP STATUS ===
+          {% if cleanup_remote | bool %}
+          ✅ Remote archive {{ archive_full_path }} has been removed
+          {% else %}
+          ℹ️  Remote archive {{ archive_full_path }} kept on server
+          Use --extra-vars "cleanup=true" to remove remote archives automatically
+          {% endif %}
+      tags: [archive, cleanup]
+    
+    - name: Create summary fact
+      set_fact:
+        archive_summary:
+          source_directory: "{{ source_directory }}"
+          source_size_mb: "{{ (source_size_bytes | int / 1024 / 1024) | round(2) }}"
+          archive_name: "{{ archive_filename }}"
+          archive_size_mb: "{{ (archive_stat.stat.size / 1024 / 1024) | round(2) }}"
+          compression_ratio: "{{ ((1 - (archive_stat.stat.size / source_size_bytes | int)) * 100) | round(1) }}"
+          local_path: "{{ local_destination }}/{{ inventory_hostname }}_{{ archive_filename }}"
+          created_date: "{{ ansible_date_time.iso8601 }}"
+          remote_cleaned: "{{ cleanup_remote | bool }}"
+      tags: [archive, summary]
+    
+    - name: Display final summary
+      debug:
+        msg: |
+          === ARCHIVE OPERATION SUMMARY ===
+          Host: {{ inventory_hostname }}
+          Source: {{ archive_summary.source_directory }}
+          Original size: {{ archive_summary.source_size_mb }} MB
+          Archive size: {{ archive_summary.archive_size_mb }} MB
+          Compression: {{ archive_summary.compression_ratio }}%
+          Local copy: {{ archive_summary.local_path }}
+          Created: {{ archive_summary.created_date }}
+          Remote cleaned: {{ archive_summary.remote_cleaned }}
+          
+          🎉 Archive operation completed successfully!
+      tags: [archive, summary]

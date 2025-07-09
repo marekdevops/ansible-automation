@@ -19,8 +19,11 @@ Automatyczne tworzenie struktur LVM z montowaniem.
 **Funkcjonalności:**
 - Tworzenie Physical Volume, Volume Group i Logical Volume
 - Formatowanie z wybranym systemem plików
+- **Automatyczne tworzenie katalogów montowania** (w tym zagnieżdżonych)
 - Automatyczne montowanie i wpisy w `/etc/fstab`
 - Walidacja parametrów i bezpieczeństwo
+- Sprawdzanie czy katalog nie jest już zamontowany
+- Inteligentne obsługiwanie istniejących struktur LVM
 
 ## 🎯 Przypadki użycia
 
@@ -83,6 +86,22 @@ ansible-playbook -i production_inventory playbooks/disk_usage_report_playbook.ym
 ansible-playbook -i inventory playbooks/create_multiple_lvm.yml --tags create_lvm
 ```
 
+### 6. **Archiwizacja i backup katalogów**
+
+```bash
+# Podstawowa archiwizacja katalogu
+ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/path/to/directory"
+
+# Archiwizacja z niestandardową nazwą
+ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/etc archive_name_override=system_config_backup.tar.gz"
+
+# Archiwizacja z automatycznym usuwaniem pliku zdalnego
+ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/var/log cleanup=true"
+
+# Archiwizacja z wysoką kompresją
+ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/home/user/documents compression=9"
+```
+
 ## 📁 Struktura plików
 
 ```
@@ -108,7 +127,10 @@ ansible-playbook -i inventory playbooks/create_multiple_lvm.yml --tags create_lv
 │   ├── create_multiple_lvm.yml            # Tworzenie wielu LVM
 │   ├── complete_disk_workflow.yml         # Kompletny workflow
 │   ├── create_virtual_disk.yml            # Tworzenie wirtualnego dysku
-│   └── diagnose_disk_issue.yml            # Diagnostyka problemów
+│   ├── diagnose_disk_issue.yml            # Diagnostyka problemów
+│   ├── demo_directory_creation.yml        # Demo możliwości tworzenia katalogów
+│   ├── archive_directory.yml              # Archiwizacja katalogów z kompresją
+│   └── archive_directory_demo.yml         # Demo archiwizacji
 ├── inventory                               # Plik inventory
 └── README.md                              # Ten plik
 ```
@@ -151,6 +173,22 @@ Kompleksowa analiza dysków (używany w workflow).
 ```bash
 ansible-playbook complete_disk_workflow.yml --tags disk_analysis
 ```
+
+### **Tag: `archive`**
+Operacje archiwizacji i kompresji katalogów.
+
+```bash
+# Przykłady użycia
+ansible-playbook playbook.yml --tags archive
+ansible-playbook playbook.yml --skip-tags archive
+```
+
+**Zawiera:**
+- Walidację przestrzeni dyskowej
+- Tworzenie archiwów tar.gz
+- Kompresję z konfigurowalnymi poziomami
+- Kopiowanie na localhost
+- Opcjonalne czyszczenie plików zdalnych
 
 ## 📖 Szczegółowe przykłady
 
@@ -257,6 +295,49 @@ ansible-playbook -i inventory backup_setup.yml --tags backup_setup
 ansible-playbook -i inventory backup_setup.yml --tags create_lvm
 ```
 
+### **Przykład 4: Backup konfiguracji systemu**
+
+```yaml
+---
+- name: System configuration backup
+  hosts: production_servers
+  gather_facts: yes
+  become: yes
+  
+  tasks:
+    # Backup konfiguracji systemu
+    - include: playbooks/archive_directory.yml
+      vars:
+        source_dir: "/etc"
+        archive_name_override: "{{ inventory_hostname }}_system_config_{{ ansible_date_time.date }}.tar.gz"
+        local_dest: "./backups/system_configs"
+        compression: "9"
+        cleanup: true
+      tags: [backup, system_config]
+    
+    # Backup logów
+    - include: playbooks/archive_directory.yml
+      vars:
+        source_dir: "/var/log"
+        archive_name_override: "{{ inventory_hostname }}_logs_{{ ansible_date_time.date }}.tar.gz"
+        local_dest: "./backups/logs"
+        compression: "6"
+        cleanup: true
+      tags: [backup, logs]
+```
+
+**Uruchomienie:**
+```bash
+# Backup tylko konfiguracji
+ansible-playbook -i inventory system_backup.yml --tags system_config
+
+# Backup tylko logów
+ansible-playbook -i inventory system_backup.yml --tags logs
+
+# Pełny backup
+ansible-playbook -i inventory system_backup.yml --tags backup
+```
+
 ## ⚡ Szybkie polecenia
 
 ### **Często używane kombinacje tagów:**
@@ -271,11 +352,20 @@ ansible-playbook -i new_servers playbooks/complete_disk_workflow.yml
 # 3. Tylko LVM bez analizy (dla znanych konfiguracji)
 ansible-playbook -i inventory playbooks/create_lvm_custom.yml --tags create_lvm
 
-# 4. Audyt bez zmian (dry-run)
+# 4. Utwórz LVM z zagnieżdżonymi katalogami
+ansible-playbook -i inventory playbooks/create_lvm_playbook.yml --extra-vars "disk=loop6 mount_destination=/opt/applications/tomcat"
+
+# 5. Audyt bez zmian (dry-run)
 ansible-playbook -i inventory playbooks/complete_disk_workflow.yml --tags lsblk --check
 
-# 5. Pomiń operacje na dyskach (dla innych zadań)
+# 6. Pomiń operacje na dyskach (dla innych zadań)
 ansible-playbook -i inventory full_server_setup.yml --skip-tags lsblk,create_lvm
+
+# 7. Archiwizuj konfigurację systemu
+ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/etc cleanup=true"
+
+# 8. Backup z wysoką kompresją
+ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/var/log compression=9 cleanup=true"
 ```
 
 ## 🔧 Konfiguracja środowiska
@@ -367,6 +457,24 @@ ansible-playbook -i inventory playbooks/disk_usage_report_playbook.yml --tags ls
 - Dysk został usunięty lub odłączony
 - Błędna nazwa dysku (sprawdź `lsblk` bezpośrednio)
 
+### **Problem: Katalog montowania nie istnieje**
+
+```bash
+# Rola automatycznie tworzy katalogi - nawet zagnieżdżone!
+ansible-playbook -i inventory playbooks/create_lvm_playbook.yml --extra-vars "disk=loop6 mount_destination=/path/that/does/not/exist"
+
+# Przykłady automatycznego tworzenia:
+# /tomcat - prosty katalog
+# /opt/applications/tomcat - zagnieżdżone katalogi
+# /var/lib/mysql/data - wielopoziomowe ścieżki
+```
+
+**Funkcje automatycznego tworzenia katalogów:**
+- Tworzy wszystkie katalogi nadrzędne (`recurse: yes`)
+- Ustawia właściwe uprawnienia (755, root:root)
+- Sprawdza czy katalog nie jest już zamontowany
+- Bezpiecznie obsługuje istniejące katalogi
+
 ### **Problem: Brak dostępnych dysków do LVM**
 
 ```bash
@@ -400,6 +508,28 @@ ansible-playbook -i inventory playbooks/diagnose_disk_issue.yml
 # Pokazanie rekomendacji
 ansible-playbook -i inventory playbooks/diagnose_disk_issue.yml --tags recommendations
 ```
+
+### **Problem: Błędy archiwizacji**
+
+```bash
+# Sprawdź dostępne miejsce przed archiwizacją
+df -h /tmp
+
+# Demo archiwizacji
+ansible-playbook -i inventory playbooks/archive_directory_demo.yml --tags demo
+
+# Test z walidacją miejsca
+ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/path" --tags validation
+
+# Archiwizacja z debugowaniem
+ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/path" -vv
+```
+
+**Częste problemy z archiwizacją:**
+- Brak miejsca w /tmp - playbook sprawdza automatycznie
+- Brak uprawnień do katalogu źródłowego - użyj `become: yes`
+- Błędy kopiowania na localhost - sprawdź uprawnienia do katalogu docelowego
+- Duże pliki - użyj wyższej kompresji (`compression=9`)
 
 ---
 

@@ -78,11 +78,49 @@
     dev: "{{ lvm_device_path }}"
   tags: create_lvm
 
-- name: Create mount directory
+- name: Check if mount destination exists
+  stat:
+    path: "{{ mount_destination }}"
+  register: mount_dir_check
+  tags: create_lvm
+
+- name: Display mount directory status
+  debug:
+    msg: |
+      Mount destination: {{ mount_destination }}
+      {% if mount_dir_check.stat.exists %}
+      Directory already exists: {{ mount_dir_check.stat.isdir }}
+      {% else %}
+      Directory will be created
+      {% endif %}
+  tags: create_lvm
+
+- name: Create mount directory with proper permissions
   file:
     path: "{{ mount_destination }}"
     state: directory
     mode: '0755'
+    owner: root
+    group: root
+    recurse: yes
+  tags: create_lvm
+
+- name: Check if mount destination is already mounted
+  shell: "mountpoint -q {{ mount_destination }} && echo 'mounted' || echo 'not_mounted'"
+  register: mount_check
+  changed_when: false
+  failed_when: false
+  tags: create_lvm
+
+- name: Display mount status
+  debug:
+    msg: |
+      Mount point {{ mount_destination }} status: {{ mount_check.stdout }}
+      {% if mount_check.stdout == 'mounted' %}
+      ⚠️  Directory is already mounted - will skip mounting
+      {% else %}
+      ✅ Ready to mount LVM volume
+      {% endif %}
   tags: create_lvm
 
 - name: Backup /etc/fstab
@@ -93,15 +131,26 @@
   when: backup_fstab
   tags: create_lvm
 
-- name: Add entry to /etc/fstab
+- name: Add entry to /etc/fstab and mount
   mount:
     path: "{{ mount_destination }}"
     src: "{{ lvm_device_path }}"
     fstype: "{{ filesystem_type }}"
     opts: defaults
     state: mounted
+  when: mount_check.stdout == 'not_mounted'
   notify:
     - Reload systemd daemon
+  tags: create_lvm
+
+- name: Add to fstab only (when already mounted)
+  mount:
+    path: "{{ mount_destination }}"
+    src: "{{ lvm_device_path }}"
+    fstype: "{{ filesystem_type }}"
+    opts: defaults
+    state: present
+  when: mount_check.stdout == 'mounted'
   tags: create_lvm
 
 - name: Verify mount is successful

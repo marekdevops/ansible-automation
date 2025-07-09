@@ -1,0 +1,103 @@
+---
+- name: Complete backup workflow - LVM + Archive
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  tasks:
+    # Krok 1: Analiza dysków
+    - name: Analyze available disks
+      include_role:
+        name: disk_usage_report
+      tags: [backup_workflow, lsblk]
+    
+    # Krok 2: Utworzenie LVM dla backupów (jeśli podano dysk)
+    - name: Create backup LVM volume
+      include_role:
+        name: create_lvm
+      vars:
+        disk: "{{ backup_disk }}"
+        mount_destination: "{{ backup_mount | default('/backup') }}"
+        volume_group_name: "{{ backup_vg | default('backup_vg') }}"
+        logical_volume_name: "{{ backup_lv | default('backup_lv') }}"
+        filesystem_type: "{{ backup_fs | default('ext4') }}"
+      when: backup_disk is defined
+      tags: [backup_workflow, create_lvm]
+    
+    # Krok 3: Archiwizacja konfiguracji systemu
+    - name: Archive system configuration
+      include: archive_directory.yml
+      vars:
+        source_directory: "/etc"
+        archive_name: "{{ inventory_hostname }}_system_config_{{ ansible_date_time.date }}.tar.gz"
+        local_destination: "{{ backup_local_dest | default('./backups/system') }}"
+        compression_level: "9"
+        cleanup_remote: true
+      when: backup_system_config | default(true) | bool
+      tags: [backup_workflow, archive, system_config]
+    
+    # Krok 4: Archiwizacja logów
+    - name: Archive system logs
+      include: archive_directory.yml
+      vars:
+        source_directory: "/var/log"
+        archive_name: "{{ inventory_hostname }}_logs_{{ ansible_date_time.date }}.tar.gz"
+        local_destination: "{{ backup_local_dest | default('./backups/logs') }}"
+        compression_level: "6"
+        cleanup_remote: true
+      when: backup_logs | default(true) | bool
+      tags: [backup_workflow, archive, logs]
+    
+    # Krok 5: Archiwizacja katalogu aplikacji (jeśli podano)
+    - name: Archive application directory
+      include: archive_directory.yml
+      vars:
+        source_directory: "{{ app_dir }}"
+        archive_name: "{{ inventory_hostname }}_{{ app_dir | basename }}_{{ ansible_date_time.date }}.tar.gz"
+        local_destination: "{{ backup_local_dest | default('./backups/applications') }}"
+        compression_level: "{{ app_compression | default('6') }}"
+        cleanup_remote: "{{ app_cleanup | default(true) }}"
+      when: app_dir is defined
+      tags: [backup_workflow, archive, applications]
+    
+    # Krok 6: Archiwizacja bazy danych (jeśli podano)
+    - name: Archive database directory
+      include: archive_directory.yml
+      vars:
+        source_directory: "{{ db_dir }}"
+        archive_name: "{{ inventory_hostname }}_database_{{ ansible_date_time.date }}.tar.gz"
+        local_destination: "{{ backup_local_dest | default('./backups/databases') }}"
+        compression_level: "9"
+        cleanup_remote: true
+      when: db_dir is defined
+      tags: [backup_workflow, archive, database]
+    
+    # Krok 7: Podsumowanie
+    - name: Display backup workflow summary
+      debug:
+        msg: |
+          === BACKUP WORKFLOW COMPLETED ===
+          Host: {{ inventory_hostname }}
+          
+          Backup components:
+          {% if backup_disk is defined %}
+          ✅ LVM backup volume created: {{ backup_mount | default('/backup') }}
+          {% endif %}
+          {% if backup_system_config | default(true) | bool %}
+          ✅ System configuration archived (/etc)
+          {% endif %}
+          {% if backup_logs | default(true) | bool %}
+          ✅ System logs archived (/var/log)
+          {% endif %}
+          {% if app_dir is defined %}
+          ✅ Application directory archived ({{ app_dir }})
+          {% endif %}
+          {% if db_dir is defined %}
+          ✅ Database directory archived ({{ db_dir }})
+          {% endif %}
+          
+          Local backups location: {{ backup_local_dest | default('./backups') }}
+          Date: {{ ansible_date_time.iso8601 }}
+          
+          🎉 Complete backup workflow finished successfully!
+      tags: [backup_workflow, summary]

@@ -1,0 +1,156 @@
+---
+- name: Demo and test archive functionality
+  hosts: localhost
+  gather_facts: yes
+  become: yes
+  
+  tasks:
+    - name: Create test directory structure
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /tmp/test_archive_demo
+        - /tmp/test_archive_demo/subdir1
+        - /tmp/test_archive_demo/subdir2
+        - /tmp/test_archive_demo/subdir1/deep
+      tags: [demo, setup]
+    
+    - name: Create test files
+      copy:
+        content: |
+          This is a test file {{ item }}.
+          Created for archive demo purposes.
+          Date: {{ ansible_date_time.iso8601 }}
+          
+          Some content to make the file larger...
+          {% for i in range(100) %}
+          Line {{ i }}: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+          {% endfor %}
+        dest: "/tmp/test_archive_demo/{{ item }}"
+        mode: '0644'
+      loop:
+        - file1.txt
+        - file2.log
+        - subdir1/config.conf
+        - subdir1/deep/data.json
+        - subdir2/readme.md
+      tags: [demo, setup]
+    
+    - name: Display test directory structure
+      shell: "find /tmp/test_archive_demo -type f -exec ls -lah {} +"
+      register: test_files
+      changed_when: false
+      tags: [demo, setup]
+    
+    - name: Show test directory content
+      debug:
+        msg: |
+          === TEST DIRECTORY CREATED ===
+          Location: /tmp/test_archive_demo
+          Files created:
+          {{ test_files.stdout }}
+      tags: [demo, setup]
+    
+    - name: Display usage examples
+      debug:
+        msg: |
+          === ARCHIVE PLAYBOOK USAGE EXAMPLES ===
+          
+          # Basic usage - archive a directory:
+          ansible-playbook -i inventory playbooks/archive_directory.yml \
+            --extra-vars "source_dir=/tmp/test_archive_demo"
+          
+          # Custom archive name:
+          ansible-playbook -i inventory playbooks/archive_directory.yml \
+            --extra-vars "source_dir=/tmp/test_archive_demo archive_name_override=my_backup.tar.gz"
+          
+          # Custom local destination:
+          ansible-playbook -i inventory playbooks/archive_directory.yml \
+            --extra-vars "source_dir=/tmp/test_archive_demo local_dest=./my_backups"
+          
+          # High compression (slower but smaller):
+          ansible-playbook -i inventory playbooks/archive_directory.yml \
+            --extra-vars "source_dir=/tmp/test_archive_demo compression=9"
+          
+          # Auto-cleanup remote archive after download:
+          ansible-playbook -i inventory playbooks/archive_directory.yml \
+            --extra-vars "source_dir=/tmp/test_archive_demo cleanup=true"
+          
+          # Multiple options combined:
+          ansible-playbook -i inventory playbooks/archive_directory.yml \
+            --extra-vars "source_dir=/tmp/test_archive_demo archive_name_override=production_backup.tar.gz local_dest=./backups compression=9 cleanup=true"
+          
+          # Archive system directories (common examples):
+          ansible-playbook -i inventory playbooks/archive_directory.yml \
+            --extra-vars "source_dir=/etc"
+          
+          ansible-playbook -i inventory playbooks/archive_directory.yml \
+            --extra-vars "source_dir=/var/log"
+          
+          ansible-playbook -i inventory playbooks/archive_directory.yml \
+            --extra-vars "source_dir=/home/user/documents"
+      tags: [demo, examples]
+    
+    - name: Show tagging examples
+      debug:
+        msg: |
+          === TAGGING EXAMPLES ===
+          
+          # Only validate (check space, directory exists):
+          ansible-playbook -i inventory playbooks/archive_directory.yml \
+            --extra-vars "source_dir=/tmp/test_archive_demo" --tags validation
+          
+          # Only create archive (skip download):
+          ansible-playbook -i inventory playbooks/archive_directory.yml \
+            --extra-vars "source_dir=/tmp/test_archive_demo" --tags create
+          
+          # Only download existing archive:
+          ansible-playbook -i inventory playbooks/archive_directory.yml \
+            --extra-vars "source_dir=/tmp/test_archive_demo" --tags download
+          
+          # Skip cleanup:
+          ansible-playbook -i inventory playbooks/archive_directory.yml \
+            --extra-vars "source_dir=/tmp/test_archive_demo" --skip-tags cleanup
+          
+          # Full process with specific tags:
+          ansible-playbook -i inventory playbooks/archive_directory.yml \
+            --extra-vars "source_dir=/tmp/test_archive_demo" --tags "validation,create,download"
+      tags: [demo, examples]
+    
+    - name: Test insufficient space scenario
+      debug:
+        msg: |
+          === TESTING INSUFFICIENT SPACE ===
+          
+          To test insufficient space handling, you could:
+          1. Fill up /tmp to near capacity
+          2. Try to archive a large directory
+          3. The playbook should fail gracefully with clear error message
+          
+          Example with very large directory:
+          # dd if=/dev/zero of=/tmp/large_file bs=1M count=1000  # Creates 1GB file
+          # mkdir -p /tmp/large_test && mv /tmp/large_file /tmp/large_test/
+          # ansible-playbook -i inventory playbooks/archive_directory.yml \
+          #   --extra-vars "source_dir=/tmp/large_test"
+      tags: [demo, examples]
+    
+    - name: Cleanup test directory
+      file:
+        path: /tmp/test_archive_demo
+        state: absent
+      when: cleanup_demo | default(false) | bool
+      tags: [demo, cleanup]
+    
+    - name: Show cleanup status
+      debug:
+        msg: |
+          === DEMO CLEANUP ===
+          {% if cleanup_demo | default(false) | bool %}
+          ✅ Test directory /tmp/test_archive_demo removed
+          {% else %}
+          ℹ️  Test directory /tmp/test_archive_demo kept for testing
+          Use --extra-vars "cleanup_demo=true" to remove it
+          {% endif %}
+      tags: [demo, cleanup]
