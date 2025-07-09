@@ -1,0 +1,8 @@
+---
+- name: Generate disk usage report using role
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  roles:
+    - disk_usage_report

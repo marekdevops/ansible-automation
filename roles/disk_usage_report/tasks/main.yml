@@ -1,0 +1,90 @@
+---
+- name: Get all block devices information
+  command: lsblk -J
+  register: lsblk_output
+  changed_when: false
+  tags: lsblk
+
+- name: Parse lsblk JSON output
+  set_fact:
+    block_devices: "{{ (lsblk_output.stdout | from_json).blockdevices }}"
+  tags: lsblk
+
+- name: Get mounted filesystems
+  command: df -h
+  register: df_output
+  changed_when: false
+  tags: lsblk
+
+- name: Find unused disks
+  set_fact:
+    unused_disks: "{{ unused_disks | default([]) + [item] }}"
+  loop: "{{ block_devices }}"
+  when:
+    - item.type == "disk"
+    - item.children is not defined or item.children | length == 0
+    - item.mountpoint is not defined
+    - item.size is defined
+  tags: lsblk
+
+- name: Display block devices summary
+  debug:
+    msg: |
+      === DISK USAGE REPORT ===
+      Host: {{ inventory_hostname }}
+      Total block devices found: {{ block_devices | length }}
+      
+      Block devices details:
+      {% for device in block_devices %}
+      - {{ device.name }}: {{ device.size | default('N/A') }} ({{ device.type | default('unknown') }})
+        {% if device.mountpoint is defined %}
+        Mounted at: {{ device.mountpoint }}
+        {% endif %}
+        {% if device.children is defined %}
+        Partitions: {{ device.children | map(attribute='name') | join(', ') }}
+        {% endif %}
+      {% endfor %}
+  when: show_detailed_output | bool
+  tags: lsblk
+
+- name: Display unused disks report
+  debug:
+    msg: |
+      === UNUSED DISKS REPORT ===
+      Host: {{ inventory_hostname }}
+      {% if unused_disks | length > 0 %}
+      Found {{ unused_disks | length }} unused disk(s):
+      {% for disk in unused_disks %}
+      - /dev/{{ disk.name }}: {{ disk.size | default('Size unknown') }}
+        Model: {{ disk.model | default('Unknown model') }}
+        {% if disk.serial is defined %}
+        Serial: {{ disk.serial }}
+        {% endif %}
+      {% endfor %}
+      
+      ⚠️  These disks appear to be unpartitioned and unmounted.
+      ⚠️  Please verify before making any changes!
+      {% else %}
+      ✅ No unused disks found - all disks are either partitioned or mounted.
+      {% endif %}
+  when: check_unused_disks | bool
+  tags: lsblk
+
+- name: Display mounted filesystems
+  debug:
+    msg: |
+      === MOUNTED FILESYSTEMS ===
+      {{ df_output.stdout }}
+  when: show_detailed_output | bool
+  tags: lsblk
+
+- name: Create summary fact
+  set_fact:
+    disk_usage_summary:
+      hostname: "{{ inventory_hostname }}"
+      total_devices: "{{ block_devices | length }}"
+      unused_disks_count: "{{ unused_disks | length }}"
+      unused_disks: "{{ unused_disks }}"
+      unused_disks_paths: "{{ unused_disks | map(attribute='name') | map('regex_replace', '^(.*)$', '/dev/\\1') | list if unused_disks is defined else [] }}"
+      scan_date: "{{ ansible_date_time.iso8601 }}"
+  tags: lsblk

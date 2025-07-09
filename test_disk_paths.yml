@@ -1,0 +1,65 @@
+---
+- name: Test full disk paths display with mock data
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  tasks:
+    - name: Mock unused disks data for testing
+      set_fact:
+        unused_disks:
+          - name: "sdb"
+            size: "500G"
+            type: "disk"
+            model: "Samsung SSD"
+          - name: "sdc"
+            size: "1T"
+            type: "disk"
+            model: "WD Black"
+            
+    - name: Test display unused disks with full paths
+      debug:
+        msg: |
+          === UNUSED DISKS REPORT ===
+          Host: {{ inventory_hostname }}
+          {% if unused_disks | length > 0 %}
+          Found {{ unused_disks | length }} unused disk(s):
+          {% for disk in unused_disks %}
+          - /dev/{{ disk.name }}: {{ disk.size | default('Size unknown') }}
+            Model: {{ disk.model | default('Unknown model') }}
+            {% if disk.serial is defined %}
+            Serial: {{ disk.serial }}
+            {% endif %}
+          {% endfor %}
+          
+          ⚠️  These disks appear to be unpartitioned and unmounted.
+          ⚠️  Please verify before making any changes!
+          {% else %}
+          ✅ No unused disks found - all disks are either partitioned or mounted.
+          {% endif %}
+          
+    - name: Test workflow display
+      debug:
+        msg: |
+          === UNUSED DISKS AVAILABLE FOR LVM ===
+          {% if unused_disks is defined and unused_disks | length > 0 %}
+          Available unused disks:
+          {% for disk in unused_disks %}
+          - /dev/{{ disk.name }}: {{ disk.size | default('Size unknown') }}
+          {% endfor %}
+          
+          You can use one of these disks for LVM creation.
+          {% else %}
+          No unused disks found. All disks are already partitioned or mounted.
+          {% endif %}
+          
+    - name: Test summary fact paths
+      set_fact:
+        test_summary:
+          unused_disks_paths: "{{ unused_disks | map(attribute='name') | map('regex_replace', '^(.*)$', '/dev/\\1') | list }}"
+          
+    - name: Display paths from fact
+      debug:
+        msg: |
+          Generated paths from fact:
+          {{ test_summary.unused_disks_paths | join(', ') }}

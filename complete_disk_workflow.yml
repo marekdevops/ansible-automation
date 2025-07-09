@@ -1,0 +1,46 @@
+---
+- name: Complete disk management workflow
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  vars:
+    # Konfiguracja dla LVM
+    target_disk: "sdb"  # Zmień na dostępny dysk
+    lvm_mount_point: "/data"
+    
+  tasks:
+    - name: Step 1 - Analyze current disk usage
+      include_role:
+        name: disk_usage_report
+      tags: 
+        - disk_analysis
+        - lsblk
+        
+    - name: Step 2 - Display unused disks
+      debug:
+        msg: |
+          === UNUSED DISKS AVAILABLE FOR LVM ===
+          {% if unused_disks is defined and unused_disks | length > 0 %}
+          Available unused disks:
+          {% for disk in unused_disks %}
+          - /dev/{{ disk.name }}: {{ disk.size | default('Size unknown') }}
+          {% endfor %}
+          
+          You can use one of these disks for LVM creation.
+          {% else %}
+          No unused disks found. All disks are already partitioned or mounted.
+          {% endif %}
+      tags: disk_analysis
+      
+    # Uncomment the following task only if you have an unused disk
+    # and want to create LVM on it
+    #
+    # - name: Step 3 - Create LVM volume (DISABLED - uncomment to enable)
+    #   include_role:
+    #     name: create_lvm
+    #   vars:
+    #     disk: "{{ target_disk }}"
+    #     mount_destination: "{{ lvm_mount_point }}"
+    #   tags: create_lvm
+    #   when: unused_disks is defined and unused_disks | length > 0

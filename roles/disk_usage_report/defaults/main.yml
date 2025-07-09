@@ -1,0 +1,5 @@
+---
+# Defaults for disk_usage_report role
+show_detailed_output: true
+check_unused_disks: true
+minimum_disk_size_gb: 1

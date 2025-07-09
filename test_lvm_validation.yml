@@ -1,0 +1,37 @@
+---
+- name: Test create_lvm role validation
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  tasks:
+    - name: Test role without required parameters
+      include_role:
+        name: create_lvm
+      vars:
+        # Celowo nie podaję wymaganych parametrów
+        volume_group_name: "test_vg"
+      ignore_errors: yes
+      register: validation_test
+
+    - name: Display validation test result
+      debug:
+        msg: |
+          Validation test result: 
+          {{ validation_test }}
+          
+    - name: Test role with non-existent disk
+      include_role:
+        name: create_lvm
+      vars:
+        disk: "sdb"
+        mount_destination: "/test"
+      ignore_errors: yes
+      register: disk_test
+      
+    - name: Display disk test result  
+      debug:
+        msg: |
+          Disk validation test result:
+          Expected: Disk does not exist error
+          {{ disk_test }}

@@ -1,0 +1,9 @@
+---
+# Default values for create_lvm role
+disk: ""
+mount_destination: ""
+volume_group_name: "vg1"
+logical_volume_name: "lv01"
+filesystem_type: "ext4"
+force_create: false
+backup_fstab: true

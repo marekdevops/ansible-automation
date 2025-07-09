@@ -1,0 +1,7 @@
+---
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+
+- name: Remount all filesystems
+  command: mount -a

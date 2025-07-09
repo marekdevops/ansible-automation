@@ -1,0 +1,13 @@
+---
+- name: Generate disk usage report with custom settings
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  vars:
+    show_detailed_output: true
+    check_unused_disks: true
+    minimum_disk_size_gb: 5
+  
+  roles:
+    - disk_usage_report

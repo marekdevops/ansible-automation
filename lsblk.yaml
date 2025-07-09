@@ -1,0 +1,34 @@
+---
+- name: Generate disk usage report for Red Hat systems
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  tasks:
+    - name: Get all block devices information
+      command: lsblk -J
+      register: lsblk_output
+      changed_when: false
+
+    - name: Parse lsblk JSON output
+      set_fact:
+        block_devices: "{{ (lsblk_output.stdout | from_json).blockdevices }}"
+
+    - name: Get mounted filesystems
+      command: df -h
+      register: df_output
+      changed_when: false
+
+    - name: Find unused disks
+      set_fact:
+        unused_disks: "{{ unused_disks | default([]) + [item] }}"
+      loop: "{{ block_devices }}"
+      when:
+        - item.type == "disk"
+        - item.children is not defined or item.children | length == 0
+        - item.mountpoint is not defined
+
+    - name: Display unused disks report
+      debug:
+        msg: |
+          mkdir -p roles/disk_usage_report/{tasks,vars,defaults}

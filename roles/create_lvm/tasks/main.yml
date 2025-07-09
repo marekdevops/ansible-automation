@@ -1,0 +1,142 @@
+---
+- name: Validate required parameters
+  fail:
+    msg: "Parameter {{ item }} is required but not provided"
+  when: vars[item] is undefined or vars[item] == ""
+  loop:
+    - disk
+    - mount_destination
+  tags: create_lvm
+
+- name: Check if disk exists
+  stat:
+    path: "{{ full_disk_path }}"
+  register: disk_check
+  tags: create_lvm
+
+- name: Fail if disk does not exist
+  fail:
+    msg: "Disk {{ full_disk_path }} does not exist"
+  when: not disk_check.stat.exists
+  tags: create_lvm
+
+- name: Install LVM2 package
+  package:
+    name: lvm2
+    state: present
+  tags: create_lvm
+
+- name: Check if disk is already used in LVM
+  shell: "pvdisplay {{ full_disk_path }} 2>/dev/null | grep -q 'VG Name' && echo 'used' || echo 'free'"
+  register: disk_lvm_status
+  changed_when: false
+  failed_when: false
+  tags: create_lvm
+
+- name: Warning if disk is already in use
+  debug:
+    msg: "WARNING: Disk {{ full_disk_path }} is already used in LVM. Use force_create=true to override."
+  when: 
+    - disk_lvm_status.stdout == "used"
+    - not force_create
+  tags: create_lvm
+
+- name: Fail if disk is in use and force_create is false
+  fail:
+    msg: "Disk {{ full_disk_path }} is already used in LVM. Set force_create=true to override."
+  when: 
+    - disk_lvm_status.stdout == "used"
+    - not force_create
+  tags: create_lvm
+
+- name: Create physical volume
+  lvg:
+    vg: "{{ volume_group_name }}"
+    pvs: "{{ full_disk_path }}"
+    state: present
+  tags: create_lvm
+
+- name: Get available space in volume group
+  shell: "vgdisplay {{ volume_group_name }} | grep 'Free  PE / Size' | awk '{print $7}' | sed 's/<//'"
+  register: vg_free_space
+  changed_when: false
+  tags: create_lvm
+
+- name: Create logical volume using all available space
+  lvol:
+    vg: "{{ volume_group_name }}"
+    lv: "{{ logical_volume_name }}"
+    size: "{{ vg_free_space.stdout }}"
+    state: present
+  tags: create_lvm
+
+- name: Create filesystem on logical volume
+  filesystem:
+    fstype: "{{ filesystem_type }}"
+    dev: "{{ lvm_device_path }}"
+  tags: create_lvm
+
+- name: Create mount directory
+  file:
+    path: "{{ mount_destination }}"
+    state: directory
+    mode: '0755'
+  tags: create_lvm
+
+- name: Backup /etc/fstab
+  copy:
+    src: /etc/fstab
+    dest: "/etc/fstab.backup.{{ ansible_date_time.epoch }}"
+    remote_src: yes
+  when: backup_fstab
+  tags: create_lvm
+
+- name: Add entry to /etc/fstab
+  mount:
+    path: "{{ mount_destination }}"
+    src: "{{ lvm_device_path }}"
+    fstype: "{{ filesystem_type }}"
+    opts: defaults
+    state: mounted
+  notify:
+    - Reload systemd daemon
+  tags: create_lvm
+
+- name: Verify mount is successful
+  command: "df -h {{ mount_destination }}"
+  register: mount_verification
+  changed_when: false
+  tags: create_lvm
+
+- name: Display LVM creation summary
+  debug:
+    msg: |
+      === LVM CREATION SUMMARY ===
+      Host: {{ inventory_hostname }}
+      Disk used: {{ full_disk_path }}
+      Volume Group: {{ volume_group_name }}
+      Logical Volume: {{ logical_volume_name }}
+      Device Path: {{ lvm_device_path }}
+      Filesystem: {{ filesystem_type }}
+      Mount Point: {{ mount_destination }}
+      Available Space: {{ vg_free_space.stdout }}
+      
+      Mount verification:
+      {{ mount_verification.stdout }}
+      
+      ✅ LVM setup completed successfully!
+  tags: create_lvm
+
+- name: Create summary fact
+  set_fact:
+    lvm_creation_summary:
+      hostname: "{{ inventory_hostname }}"
+      disk_used: "{{ full_disk_path }}"
+      volume_group: "{{ volume_group_name }}"
+      logical_volume: "{{ logical_volume_name }}"
+      device_path: "{{ lvm_device_path }}"
+      filesystem_type: "{{ filesystem_type }}"
+      mount_point: "{{ mount_destination }}"
+      available_space: "{{ vg_free_space.stdout }}"
+      creation_date: "{{ ansible_date_time.iso8601 }}"
+  tags: create_lvm

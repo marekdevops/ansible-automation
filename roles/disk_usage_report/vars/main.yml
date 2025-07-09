@@ -1,0 +1,4 @@
+---
+# Variables for disk_usage_report role
+unused_disks: []
+block_devices: []

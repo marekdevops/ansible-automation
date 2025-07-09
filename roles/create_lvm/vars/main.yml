@@ -1,0 +1,4 @@
+---
+# Variables for create_lvm role
+lvm_device_path: "/dev/{{ volume_group_name }}/{{ logical_volume_name }}"
+full_disk_path: "/dev/{{ disk }}"
