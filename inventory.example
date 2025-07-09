@@ -1,0 +1,38 @@
+# Przykładowy plik inventory dla ansible-automation
+
+[local]
+localhost ansible_connection=local ansible_become=yes
+
+[production]
+# server1 ansible_host=192.168.1.10 ansible_user=ansible
+# server2 ansible_host=192.168.1.11 ansible_user=ansible
+# server3 ansible_host=192.168.1.12 ansible_user=ansible
+
+[staging]
+# staging1 ansible_host=192.168.1.20 ansible_user=ansible
+# staging2 ansible_host=192.168.1.21 ansible_user=ansible
+
+[new_servers]
+# new1 ansible_host=192.168.1.30 ansible_user=ansible
+# new2 ansible_host=192.168.1.31 ansible_user=ansible
+
+[backup_servers]
+# backup1 ansible_host=192.168.1.40 ansible_user=ansible
+
+[database_servers]
+# db1 ansible_host=192.168.1.50 ansible_user=ansible
+# db2 ansible_host=192.168.1.51 ansible_user=ansible
+
+# Globalne zmienne dla wszystkich hostów
+[all:vars]
+ansible_user=ansible
+ansible_become=yes
+ansible_ssh_private_key_file=~/.ssh/id_rsa
+
+# Zmienne dla środowiska produkcyjnego
+[production:vars]
+environment=production
+
+# Zmienne dla środowiska staging
+[staging:vars]
+environment=staging
