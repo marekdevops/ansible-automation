@@ -25,6 +25,17 @@ Automatyczne tworzenie struktur LVM z montowaniem.
 - Sprawdzanie czy katalog nie jest już zamontowany
 - Inteligentne obsługiwanie istniejących struktur LVM
 
+**Zmienne roli:**
+| Zmienna | Domyślna wartość | Opis |
+|---------|------------------|------|
+| `disk` | `""` | Nazwa dysku (wymagana, np. "sdb") |
+| `mount_destination` | `""` | Punkt montowania (wymagany, np. "/data") |
+| `volume_group_name` | `"vg1"` | Nazwa Volume Group |
+| `logical_volume_name` | `"lv01"` | Nazwa Logical Volume |
+| `filesystem_type` | `"ext4"` | Typ systemu plików |
+| `force_create` | `false` | Wymusza utworzenie na używanym dysku |
+| `backup_fstab` | `true` | Czy tworzyć kopię zapasową /etc/fstab |
+
 ## 🎯 Przypadki użycia
 
 ### 1. **Analiza dysków w systemie**
@@ -43,8 +54,12 @@ ansible-playbook -i inventory some_playbook.yml --skip-tags lsblk
 ### 2. **Tworzenie LVM na nowym dysku**
 
 ```bash
-# Podstawowe utworzenie LVM
+# Podstawowe utworzenie LVM (wymaga zdefiniowania zmiennych)
 ansible-playbook -i inventory playbooks/create_lvm_playbook.yml
+
+# Z niestandardowymi zmiennymi przez --extra-vars
+ansible-playbook -i inventory playbooks/create_lvm_playbook.yml \
+  --extra-vars "disk=sdb mount_destination=/data"
 
 # Tylko operacje LVM z tagiem
 ansible-playbook -i inventory playbooks/create_lvm_playbook.yml --tags create_lvm
@@ -126,6 +141,7 @@ ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "sour
 │   ├── create_lvm_custom.yml              # LVM z konfiguracją
 │   ├── create_multiple_lvm.yml            # Tworzenie wielu LVM
 │   ├── complete_disk_workflow.yml         # Kompletny workflow
+│   ├── complete_server_setup.yml          # Przykład najlepszych praktyk
 │   ├── create_virtual_disk.yml            # Tworzenie wirtualnego dysku
 │   ├── diagnose_disk_issue.yml            # Diagnostyka problemów
 │   ├── demo_directory_creation.yml        # Demo możliwości tworzenia katalogów
@@ -134,8 +150,33 @@ ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "sour
 ├── inventory                               # Plik inventory
 └── README.md                              # Ten plik
 ```
-
+ta
 ## 🏷️ System tagów
+
+### **Sposoby konfiguracji ról:**
+
+**1. Przez zmienne w playbooku:**
+```yaml
+roles:
+  - role: create_lvm
+    vars:
+      disk: "sdb"
+      mount_destination: "/data"
+      volume_group_name: "data_vg"
+```
+
+**2. Przez --extra-vars:**
+```bash
+ansible-playbook -i inventory playbook.yml --extra-vars "disk=sdb mount_destination=/data"
+```
+
+**3. Przez group_vars lub host_vars:**
+```yaml
+# group_vars/all.yml
+disk: "sdb"
+mount_destination: "/data"
+volume_group_name: "data_vg"
+```
 
 ### **Tag: `lsblk`**
 Uruchamia wszystkie operacje związane z analizą dysków.
@@ -252,6 +293,10 @@ ansible-playbook -i inventory setup_server.yml --tags setup
 
 # Tylko LVM
 ansible-playbook -i inventory setup_server.yml --tags create_lvm
+
+# Z niestandardowymi parametrami przez --extra-vars
+ansible-playbook -i inventory setup_server.yml \
+  --extra-vars "disk=sdc mount_destination=/opt/data" --tags create_lvm
 ```
 
 ### **Przykład 3: Serwer backupowy z wieloma dyskami**
@@ -338,6 +383,62 @@ ansible-playbook -i inventory system_backup.yml --tags logs
 ansible-playbook -i inventory system_backup.yml --tags backup
 ```
 
+### **Przykład 5: Najlepsze praktyki - kompletny setup serwera**
+
+```yaml
+---
+- name: Complete server setup with best practices
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  vars:
+    # Konfiguracja LVM przez zmienne playbooka
+    lvm_config:
+      disk: "sdb"
+      mount_destination: "/data"
+      volume_group_name: "data_vg"
+      logical_volume_name: "data_lv"
+      filesystem_type: "ext4"
+  
+  tasks:
+    # Analiza dysków
+    - include_role:
+        name: disk_usage_report
+      tags: [setup, lsblk]
+    
+    # Tworzenie LVM z walidacją
+    - include_role:
+        name: create_lvm
+      vars:
+        disk: "{{ lvm_config.disk }}"
+        mount_destination: "{{ lvm_config.mount_destination }}"
+        volume_group_name: "{{ lvm_config.volume_group_name }}"
+        logical_volume_name: "{{ lvm_config.logical_volume_name }}"
+        filesystem_type: "{{ lvm_config.filesystem_type }}"
+      when: 
+        - unused_disks is defined 
+        - unused_disks | selectattr('name', 'equalto', lvm_config.disk) | list | length > 0
+      tags: [setup, create_lvm]
+```
+
+**Uruchomienie:**
+```bash
+# Kompletny setup z zmiennymi z playbooka
+ansible-playbook -i inventory playbooks/complete_server_setup.yml
+
+# Setup z niestandardowym dyskiem
+ansible-playbook -i inventory playbooks/complete_server_setup.yml \
+  --extra-vars "lvm_config.disk=sdc"
+
+# Tylko analiza
+ansible-playbook -i inventory playbooks/complete_server_setup.yml --tags lsblk
+
+# Z backupami
+ansible-playbook -i inventory playbooks/complete_server_setup.yml \
+  --extra-vars "backup_enabled=true"
+```
+
 ## ⚡ Szybkie polecenia
 
 ### **Często używane kombinacje tagów:**
@@ -349,23 +450,48 @@ ansible-playbook -i cluster_inventory playbooks/disk_usage_report_playbook.yml -
 # 2. Przygotuj nowe serwery (analiza + LVM)
 ansible-playbook -i new_servers playbooks/complete_disk_workflow.yml
 
-# 3. Tylko LVM bez analizy (dla znanych konfiguracji)
+# 3. Najlepsze praktyki - kompletny setup
+ansible-playbook -i inventory playbooks/complete_server_setup.yml
+
+# 4. Tylko LVM bez analizy (dla znanych konfiguracji)
 ansible-playbook -i inventory playbooks/create_lvm_custom.yml --tags create_lvm
 
-# 4. Utwórz LVM z zagnieżdżonymi katalogami
-ansible-playbook -i inventory playbooks/create_lvm_playbook.yml --extra-vars "disk=loop6 mount_destination=/opt/applications/tomcat"
+# 5. Utwórz LVM z niestandardowymi parametrami
+ansible-playbook -i inventory playbooks/create_lvm_playbook.yml \
+  --extra-vars "disk=loop6 mount_destination=/opt/applications/tomcat"
 
-# 5. Audyt bez zmian (dry-run)
+# 6. Audyt bez zmian (dry-run)
 ansible-playbook -i inventory playbooks/complete_disk_workflow.yml --tags lsblk --check
 
-# 6. Pomiń operacje na dyskach (dla innych zadań)
+# 7. Pomiń operacje na dyskach (dla innych zadań)
 ansible-playbook -i inventory full_server_setup.yml --skip-tags lsblk,create_lvm
 
-# 7. Archiwizuj konfigurację systemu
+# 8. Archiwizuj konfigurację systemu
 ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/etc cleanup=true"
 
-# 8. Backup z wysoką kompresją
+# 9. Backup z wysoką kompresją
 ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/var/log compression=9 cleanup=true"
+```
+
+### **Rekomendowane podejścia:**
+
+**1. Dla prostych konfiguracji:**
+```bash
+# Użyj gotowych playbooków z defaults
+ansible-playbook -i inventory playbooks/create_lvm_playbook.yml
+```
+
+**2. Dla środowisk produkcyjnych:**
+```bash
+# Zdefiniuj zmienne w group_vars lub host_vars
+ansible-playbook -i inventory playbooks/complete_server_setup.yml
+```
+
+**3. Dla testowania:**
+```bash
+# Użyj --extra-vars dla szybkich testów
+ansible-playbook -i inventory playbooks/create_lvm_playbook.yml \
+  --extra-vars "disk=loop6 mount_destination=/test" --check
 ```
 
 ## 🔧 Konfiguracja środowiska

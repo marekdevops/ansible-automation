@@ -1,0 +1,105 @@
+---
+- name: Best practices example - complete server setup
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  # Zmienne można definiować na poziomie playbooka
+  vars:
+    # Konfiguracja LVM - nadpisuje defaults z roli
+    lvm_config:
+      disk: "sdb"
+      mount_destination: "/data"
+      volume_group_name: "data_vg"
+      logical_volume_name: "data_lv"
+      filesystem_type: "ext4"
+      force_create: false
+    
+    # Konfiguracja archiwizacji
+    backup_config:
+      source_directories:
+        - "/etc"
+        - "/var/log"
+        - "/opt/applications"
+      local_backup_path: "./backups"
+      compression_level: 6
+      cleanup_remote: true
+  
+  tasks:
+    # Krok 1: Analiza dostępnych dysków
+    - name: Analyze available disks
+      include_role:
+        name: disk_usage_report
+      tags: [setup, analysis, lsblk]
+    
+    # Krok 2: Wyświetl dostępne dyski
+    - name: Show available disks for LVM
+      debug:
+        msg: |
+          === AVAILABLE DISKS FOR LVM ===
+          {% if unused_disks is defined and unused_disks | length > 0 %}
+          Found {{ unused_disks | length }} unused disk(s):
+          {% for disk in unused_disks %}
+          - {{ disk.name }} ({{ disk.size }})
+          {% endfor %}
+          
+          Will use disk: {{ lvm_config.disk }}
+          {% else %}
+          No unused disks found!
+          {% endif %}
+      tags: [setup, analysis]
+    
+    # Krok 3: Utworzenie LVM (tylko jeśli dysk dostępny)
+    - name: Create LVM volume
+      include_role:
+        name: create_lvm
+      vars:
+        disk: "{{ lvm_config.disk }}"
+        mount_destination: "{{ lvm_config.mount_destination }}"
+        volume_group_name: "{{ lvm_config.volume_group_name }}"
+        logical_volume_name: "{{ lvm_config.logical_volume_name }}"
+        filesystem_type: "{{ lvm_config.filesystem_type }}"
+        force_create: "{{ lvm_config.force_create }}"
+      when: 
+        - unused_disks is defined 
+        - unused_disks | selectattr('name', 'equalto', lvm_config.disk) | list | length > 0
+      tags: [setup, lvm, create_lvm]
+    
+    # Krok 4: Backup systemowych katalogów
+    - name: Archive system directories
+      include: archive_directory.yml
+      vars:
+        source_directory: "{{ item }}"
+        archive_name: "{{ inventory_hostname }}_{{ item | basename }}_{{ ansible_date_time.date }}.tar.gz"
+        local_destination: "{{ backup_config.local_backup_path }}/{{ item | basename }}"
+        compression_level: "{{ backup_config.compression_level }}"
+        cleanup_remote: "{{ backup_config.cleanup_remote }}"
+      loop: "{{ backup_config.source_directories }}"
+      when: backup_enabled | default(false) | bool
+      tags: [setup, backup, archive]
+    
+    # Krok 5: Podsumowanie
+    - name: Display setup summary
+      debug:
+        msg: |
+          === SETUP COMPLETED ===
+          Host: {{ inventory_hostname }}
+          
+          Components installed:
+          ✅ Disk analysis completed
+          {% if unused_disks is defined and unused_disks | selectattr('name', 'equalto', lvm_config.disk) | list | length > 0 %}
+          ✅ LVM created: {{ lvm_config.mount_destination }}
+          {% else %}
+          ⚠️  LVM not created (disk {{ lvm_config.disk }} not available)
+          {% endif %}
+          {% if backup_enabled | default(false) | bool %}
+          ✅ System backups created
+          {% else %}
+          ℹ️  Backups skipped (use --extra-vars "backup_enabled=true")
+          {% endif %}
+          
+          Next steps:
+          1. Verify mounted filesystem: df -h {{ lvm_config.mount_destination }}
+          2. Set up applications on {{ lvm_config.mount_destination }}
+          3. Configure regular backups
+      tags: [setup, summary]
