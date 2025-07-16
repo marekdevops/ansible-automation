@@ -8,15 +8,20 @@
     # Default values - can be overridden with --extra-vars
     source_directory: "{{ source_dir | default('') }}"
     archive_name: "{{ archive_name_override | default('') }}"
-    local_destination: "{{ local_dest | default('./backups') }}"
+    local_destination: "{{ local_dest | default('') }}"
     compression_level: "{{ compression | default('6') }}"
     cleanup_remote: "{{ cleanup | default(false) }}"
     
   tasks:
     - name: Validate required parameters
       fail:
-        msg: "Parameter 'source_dir' is required. Use --extra-vars 'source_dir=/path/to/directory'"
-      when: source_directory == "" or source_directory is undefined
+        msg: |
+          Required parameters missing:
+          - 'source_dir' is required. Use --extra-vars 'source_dir=/path/to/directory'
+          - 'local_dest' is required. Use --extra-vars 'local_dest=/path/to/local/directory'
+          
+          Example: --extra-vars "source_dir=/etc local_dest=/home/user/backups"
+      when: (source_directory == "" or source_directory is undefined) or (local_destination == "" or local_destination is undefined)
       tags: [archive, validation]
     
     - name: Check if source directory exists
@@ -45,9 +50,9 @@
     
     - name: Calculate required space (source size + 20% buffer)
       set_fact:
-        source_size_bytes: "{{ source_size.stdout | int }}"
-        available_space_bytes: "{{ tmp_space.stdout | int }}"
-        required_space_bytes: "{{ (source_size.stdout | int * 1.2) | int }}"
+        source_size_bytes: "{{ source_size.stdout | default('0') | int }}"
+        available_space_bytes: "{{ tmp_space.stdout | default('0') | int }}"
+        required_space_bytes: "{{ (source_size.stdout | default('0') | int * 1.2) | int }}"
       tags: [archive, validation]
     
     - name: Display space information
@@ -121,25 +126,33 @@
           Created: {{ ansible_date_time.iso8601 }}
       tags: [archive, create]
     
-    - name: Create local destination directory
+    - name: Validate local destination path
+      fail:
+        msg: |
+          Local destination path '{{ local_destination }}' contains invalid characters or format.
+          Please use absolute path like: /home/user/backups or ./my_backups
+      when: local_destination | regex_search('[<>:"|?*]')
+      tags: [archive, validation]
+      
+    - name: Create local destination directory (with expansion)
       file:
-        path: "{{ local_destination }}"
+        path: "{{ local_destination | expanduser }}"
         state: directory
         mode: '0755'
       delegate_to: localhost
       run_once: true
-      tags: [archive, download]
+      tags: [archive, validation]
     
     - name: Copy archive to localhost
       fetch:
         src: "{{ archive_full_path }}"
-        dest: "{{ local_destination }}/{{ inventory_hostname }}_{{ archive_filename }}"
+        dest: "{{ local_destination | expanduser }}/{{ inventory_hostname }}_{{ archive_filename }}"
         flat: yes
       tags: [archive, download]
     
     - name: Get local archive info
       stat:
-        path: "{{ local_destination }}/{{ inventory_hostname }}_{{ archive_filename }}"
+        path: "{{ local_destination | expanduser }}/{{ inventory_hostname }}_{{ archive_filename }}"
       register: local_archive_stat
       delegate_to: localhost
       tags: [archive, download]
@@ -149,7 +162,7 @@
         msg: |
           === DOWNLOAD COMPLETED ===
           Remote archive: {{ archive_full_path }}
-          Local archive: {{ local_destination }}/{{ inventory_hostname }}_{{ archive_filename }}
+          Local archive: {{ local_destination | expanduser }}/{{ inventory_hostname }}_{{ archive_filename }}
           Size: {{ (local_archive_stat.stat.size / 1024 / 1024) | round(2) }} MB
           ✅ Archive successfully copied to localhost
       tags: [archive, download]
@@ -181,7 +194,7 @@
           archive_name: "{{ archive_filename }}"
           archive_size_mb: "{{ (archive_stat.stat.size / 1024 / 1024) | round(2) }}"
           compression_ratio: "{{ ((1 - (archive_stat.stat.size / source_size_bytes | int)) * 100) | round(1) }}"
-          local_path: "{{ local_destination }}/{{ inventory_hostname }}_{{ archive_filename }}"
+          local_path: "{{ local_destination | expanduser }}/{{ inventory_hostname }}_{{ archive_filename }}"
           created_date: "{{ ansible_date_time.iso8601 }}"
           remote_cleaned: "{{ cleanup_remote | bool }}"
       tags: [archive, summary]
