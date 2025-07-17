@@ -1,0 +1,56 @@
+---
+- name: Test extract archive validation
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  become: no
+  
+  vars:
+    source_archive: "{{ source | default('') }}"
+    destination_directory: "{{ dest | default('') }}"
+    target_user: "{{ user | default('') }}"
+    
+  tasks:
+    - name: Validate required parameters
+      fail:
+        msg: |
+          Required parameters missing:
+          - 'source' is required. Use --extra-vars 'source=/path/to/archive.tar.gz'
+          - 'dest' is required. Use --extra-vars 'dest=/path/to/destination'
+          - 'user' is required. Use --extra-vars 'user=username'
+          
+          Example: --extra-vars "source=./backups/myfile.tar.gz dest=/opt/myapp user=appuser"
+      when: (source_archive == "" or source_archive is undefined) or (destination_directory == "" or destination_directory is undefined) or (target_user == "" or target_user is undefined)
+      tags: [extract, validation]
+    
+    - name: Check if source archive exists locally
+      stat:
+        path: "{{ source_archive | expanduser }}"
+      register: source_check
+      delegate_to: localhost
+      tags: [extract, validation]
+    
+    - name: Debug source_check
+      debug:
+        var: source_check
+      tags: [extract, validation]
+    
+    - name: Fail if source archive does not exist or is not .tar.gz
+      fail:
+        msg: |
+          Archive validation failed:
+          - File: {{ source_archive | expanduser }}
+          - Exists: {{ source_check.stat.exists | default(false) }}
+          - Is file: {{ source_check.stat.isfile | default(false) }}
+          - Expected: .tar.gz file that exists
+      when: >
+        (source_check.stat is not defined) or
+        (not source_check.stat.exists) or
+        (source_check.stat.exists and not source_check.stat.isfile) or
+        (not source_archive.endswith('.tar.gz'))
+      tags: [extract, validation]
+    
+    - name: Validation passed
+      debug:
+        msg: "✅ Archive validation passed for {{ source_archive | expanduser }}"
+      tags: [extract, validation]

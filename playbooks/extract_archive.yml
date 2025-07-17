@@ -38,7 +38,10 @@
           - Exists: {{ source_check.stat.exists | default(false) }}
           - Is file: {{ source_check.stat.isfile | default(false) }}
           - Expected: .tar.gz file that exists
-      when: not source_check.stat.exists or not source_check.stat.isfile or not source_archive.endswith('.tar.gz')
+      when: >
+        source_check.stat.exists == false or
+        source_check.stat.isfile == false or
+        source_archive.endswith('.tar.gz') == false
       tags: [extract, validation]
     
     - name: Check if target user exists

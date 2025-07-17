@@ -1,0 +1,23 @@
+---
+- name: Simple test
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  
+  tasks:
+    - name: Test basic ansible functionality
+      debug:
+        msg: "Ansible is working!"
+        
+    - name: Test file check
+      stat:
+        path: "/tmp/nieistniejacy.tar.gz"
+      register: test_stat
+      
+    - name: Show stat result
+      debug:
+        var: test_stat
+        
+    - name: Test condition
+      debug:
+        msg: "File exists: {{ test_stat.stat.exists | default(false) }}"
