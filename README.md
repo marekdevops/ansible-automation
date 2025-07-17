@@ -146,26 +146,33 @@ ansible-playbook -i inventory playbooks/archive_directory.yml \
 ansible-playbook -i inventory playbooks/extract_archive.yml \
   --extra-vars "source=./backups/myapp.tar.gz dest=/opt/myapp user=appuser"
 
-# Wdrożenie systemu z archiwum domowego
+# Wdrożenie z zachowaniem oryginalnych uprawnień z archiwum
 ansible-playbook -i inventory playbooks/extract_archive.yml \
-  --extra-vars "source=~/backups/system_config.tar.gz dest=/etc user=root"
+  --extra-vars "source=~/backups/system_config.tar.gz dest=/etc user=root preserve_perms=true"
 
-# Wdrożenie aplikacji użytkownika
+# Wdrożenie aplikacji użytkownika z bezpiecznymi uprawnieniami
 ansible-playbook -i inventory playbooks/extract_archive.yml \
   --extra-vars "source=/backup/webapp.tar.gz dest=/home/webuser/app user=webuser"
 
-# Przywrócenie katalogu z pełną ścieżką
+# Przywrócenie katalogu z zachowaniem oryginalnych uprawnień
 ansible-playbook -i inventory playbooks/extract_archive.yml \
-  --extra-vars "source=/tmp/restore_data.tar.gz dest=/var/lib/myservice user=service"
+  --extra-vars "source=/tmp/restore_data.tar.gz dest=/var/lib/myservice user=service preserve_perms=true"
 ```
 
 **Parametry ekstrakcji:**
 
-| Parametr | Wymagany | Opis | Przykład |
-|----------|----------|------|----------|
-| `source` | **TAK** | Lokalny plik tar.gz | `./backups/app.tar.gz`, `~/archive.tar.gz` |
-| `dest` | **TAK** | Katalog docelowy na zdalnym hoście | `/opt/app`, `/home/user/restore` |
-| `user` | **TAK** | Właściciel plików po ekstrakcji | `appuser`, `root`, `webuser` |
+| Parametr | Wymagany | Domyślna | Opis | Przykład |
+|----------|----------|----------|------|----------|
+| `source` | **TAK** | - | Lokalny plik tar.gz | `./backups/app.tar.gz`, `~/archive.tar.gz` |
+| `dest` | **TAK** | - | Katalog docelowy na zdalnym hoście | `/opt/app`, `/home/user/restore` |
+| `user` | **TAK** | - | Właściciel plików po ekstrakcji | `appuser`, `root`, `webuser` |
+| `preserve_perms` | Nie | `false` | Zachowaj oryginalne uprawnienia z archiwum | `true`/`false` |
+
+**Uwagi dotyczące uprawnień:**
+- **Domyślnie** (`preserve_perms=false`): Bezpieczne uprawnienia (644 dla plików, 755 dla katalogów)
+- **Z `preserve_perms=true`**: Zachowuje oryginalne uprawnienia z archiwum tar.gz
+- **Właściciel**: Zawsze ustawiany na wskazanego użytkownika niezależnie od opcji
+- **Grupa**: Zawsze ustawiana na wskazanego użytkownika niezależnie od opcji
 
 ## 📁 Struktura plików
 
@@ -545,9 +552,9 @@ ansible-playbook -i inventory playbooks/archive_directory.yml \
 ansible-playbook -i inventory playbooks/extract_archive.yml \
   --extra-vars "source=./backups/myapp.tar.gz dest=/opt/myapp user=appuser"
 
-# 11. Przywróć konfigurację systemu
+# 11. Przywróć konfigurację systemu z zachowaniem uprawnień
 ansible-playbook -i inventory playbooks/extract_archive.yml \
-  --extra-vars "source=~/backups/system_config.tar.gz dest=/etc user=root"
+  --extra-vars "source=~/backups/system_config.tar.gz dest=/etc user=root preserve_perms=true"
 ```
 
 ### **Rekomendowane podejścia:**
@@ -742,6 +749,26 @@ ansible-playbook -i inventory playbooks/extract_archive.yml \
 - `playbooks/extract_archive.yml` - główny playbook
 - `playbooks/archive_directory.yml` - archiwizacja katalogów  
 - `roles/create_lvm/tasks/main.yml` - walidacja dysków LVM
+
+### **Problem: Problemy z uprawnieniami podczas rozpakowywania**
+
+**✅ ROZWIĄZANO:** Dodano opcję `preserve_perms` do kontroli uprawnień podczas rozpakowywania.
+
+```bash
+# Domyślnie - bezpieczne uprawnienia (644/755):
+ansible-playbook -i inventory playbooks/extract_archive.yml \
+  --extra-vars "source=./app.tar.gz dest=/opt/app user=appuser"
+
+# Z zachowaniem oryginalnych uprawnień z archiwum:
+ansible-playbook -i inventory playbooks/extract_archive.yml \
+  --extra-vars "source=./app.tar.gz dest=/opt/app user=appuser preserve_perms=true"
+```
+
+**Co zostało dodane:**
+- **Parametr `preserve_perms`**: Kontroluje czy zachować oryginalne uprawnienia
+- **Domyślnie `false`**: Bezpieczne uprawnienia 644 dla plików, 755 dla katalogów
+- **Z `preserve_perms=true`**: Zachowuje oryginalne uprawnienia z archiwum tar.gz
+- **Właściciel zawsze ustawiany**: Niezależnie od opcji uprawnień
 
 ### **Problem: Błędy archiwizacji**
 

@@ -9,6 +9,8 @@
     source_archive: "{{ source | default('') }}"
     destination_directory: "{{ dest | default('') }}"
     target_user: "{{ user | default('') }}"
+    preserve_permissions: "{{ preserve_perms | default(false) }}"
+    strip_components: "{{ strip_dirs | default(0) }}"
     
   tasks:
     - name: Validate required parameters
@@ -19,7 +21,11 @@
           - 'dest' is required. Use --extra-vars 'dest=/path/to/destination'
           - 'user' is required. Use --extra-vars 'user=username'
           
-          Example: --extra-vars "source=./backups/myfile.tar.gz dest=/opt/myapp user=appuser"
+          Optional parameters:
+          - 'preserve_perms=true' to keep original file permissions from archive
+          - 'strip_dirs=N' to strip N directory levels from archive (e.g., strip_dirs=1 to remove top folder)
+          
+          Example: --extra-vars "source=./backups/myfile.tar.gz dest=/opt/myapp user=appuser strip_dirs=1"
       when: (source_archive == "" or source_archive is undefined) or (destination_directory == "" or destination_directory is undefined) or (target_user == "" or target_user is undefined)
       tags: [extract, validation]
     
@@ -116,6 +122,8 @@
           Remote archive: {{ remote_archive_path }}
           Destination: {{ destination_directory }}
           Target user: {{ target_user }}
+          Preserve permissions: {{ preserve_permissions }}
+          Strip directory levels: {{ strip_components }}
       tags: [extract, upload]
     
     - name: Copy archive to remote host
@@ -172,7 +180,8 @@
         creates: false
         owner: "{{ target_user }}"
         group: "{{ target_user }}"
-        mode: preserve
+        mode: "{{ 'preserve' if preserve_permissions else omit }}"
+        extra_opts: "{{ ['--strip-components=' + (strip_components | string)] if strip_components | int > 0 else [] }}"
       register: extract_result
       tags: [extract, deploy]
     
@@ -193,6 +202,13 @@
         recurse: yes
       tags: [extract, ownership]
     
+    - name: Set safe permissions for extracted files
+      shell: |
+        find {{ destination_directory }} -type f -exec chmod 644 {} \;
+        find {{ destination_directory }} -type d -exec chmod 755 {} \;
+      when: not preserve_permissions
+      tags: [extract, ownership]
+    
     - name: Display extraction results
       debug:
         msg: |
@@ -200,6 +216,8 @@
           Archive extracted to: {{ destination_directory }}
           Total files extracted: {{ extracted_files.matched }}
           Owner set to: {{ target_user }}:{{ target_user }}
+          Permissions: {{ 'Original from archive' if preserve_permissions else 'Safe defaults (644/755)' }}
+          Directory levels stripped: {{ strip_components }}
           ✅ Archive successfully extracted and deployed
       tags: [extract, deploy]
     
