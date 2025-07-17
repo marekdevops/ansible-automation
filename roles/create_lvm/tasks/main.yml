@@ -17,7 +17,7 @@
 - name: Fail if disk does not exist
   fail:
     msg: "Disk {{ full_disk_path }} does not exist"
-  when: (disk_check.stat is undefined) or (not disk_check.stat.exists)
+  when: not disk_check.stat.exists
   tags: create_lvm
 
 - name: Install LVM2 package

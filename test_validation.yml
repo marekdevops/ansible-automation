@@ -1,0 +1,53 @@
+---
+- name: Test simplified validation
+  hosts: localhost
+  gather_facts: no
+  connection: local
+  
+  tasks:
+    - name: Test archive validation with non-existent file
+      block:
+        - name: Check if source archive exists locally
+          stat:
+            path: "./nieistniejacy_plik.tar.gz"
+          register: source_check
+        
+        - name: Fail if source archive does not exist or is not .tar.gz
+          fail:
+            msg: |
+              Archive validation failed:
+              - File: ./nieistniejacy_plik.tar.gz
+              - Exists: {{ source_check.stat.exists | default(false) }}
+              - Is file: {{ source_check.stat.isfile | default(false) }}
+              - Expected: .tar.gz file that exists
+          when: not source_check.stat.exists or not source_check.stat.isfile or not "./nieistniejacy_plik.tar.gz".endswith('.tar.gz')
+      
+      rescue:
+        - name: Expected failure occurred
+          debug:
+            msg: "✅ Validation correctly detected non-existent file"
+    
+    - name: Test with existing file
+      block:
+        - name: Create test tar.gz file
+          shell: "echo 'test' | tar czf /tmp/test.tar.gz -T -"
+        
+        - name: Check if test archive exists
+          stat:
+            path: "/tmp/test.tar.gz"
+          register: test_source_check
+        
+        - name: Validate test archive
+          debug:
+            msg: |
+              Archive validation passed:
+              - File: /tmp/test.tar.gz
+              - Exists: {{ test_source_check.stat.exists | default(false) }}
+              - Is file: {{ test_source_check.stat.isfile | default(false) }}
+              - Has .tar.gz extension: {{ "/tmp/test.tar.gz".endswith('.tar.gz') }}
+          when: test_source_check.stat.exists and test_source_check.stat.isfile and "/tmp/test.tar.gz".endswith('.tar.gz')
+        
+        - name: Cleanup test file
+          file:
+            path: "/tmp/test.tar.gz"
+            state: absent

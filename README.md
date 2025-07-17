@@ -714,23 +714,24 @@ ansible-playbook -i inventory playbooks/diagnose_disk_issue.yml --tags recommend
 
 ### **Problem: Błędy walidacji stat w conditional check**
 
-**Rozwiązane w najnowszej wersji:** Błąd `conditional check 'not source_check.stat.exists' failed` podczas sprawdzania nieistniejących plików.
+**Rozwiązane - uproszczono walidację:** Błąd `conditional check 'not source_check.stat.exists' failed` podczas sprawdzania nieistniejących plików.
 
 ```bash
-# Błąd został naprawiony w następujących playbookach:
-# - playbooks/extract_archive.yml
-# - playbooks/archive_directory.yml  
-# - roles/create_lvm/tasks/main.yml
+# Zastąpiono skomplikowaną walidację prostym sprawdzeniem:
+# - Czy plik istnieje (source_check.stat.exists)
+# - Czy to jest plik (source_check.stat.isfile) 
+# - Czy ma rozszerzenie .tar.gz
 
 # Teraz można bezpiecznie używać z nieistniejącymi plikami:
 ansible-playbook -i inventory playbooks/extract_archive.yml \
   --extra-vars "source=./nieistniejacy.tar.gz dest=/tmp user=root"
 ```
 
-**Co zostało naprawione:**
-- Dodano sprawdzanie `source_check.stat is undefined` przed dostępem do `stat.exists`
-- Poprawiono walidację w wszystkich playbookach archiwizacji
-- Ulepszono komunikaty błędów
+**Co zostało uproszczone:**
+- Usunięto skomplikowane sprawdzenia `source_check.stat is undefined`
+- Zastąpiono wieloma prostymi warunkami w jednej linii
+- Ulepszono komunikaty błędów z bardziej szczegółowymi informacjami
+- Poprawiono w playbookach: `extract_archive.yml`, `archive_directory.yml`, `create_lvm/tasks/main.yml`
 
 ### **Problem: Błędy archiwizacji**
 
