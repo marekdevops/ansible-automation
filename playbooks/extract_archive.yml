@@ -36,12 +36,12 @@
           Archive validation failed:
           - File: {{ source_archive | expanduser }}
           - Exists: {{ source_check.stat.exists | default(false) }}
-          - Is file: {{ source_check.stat.isfile | default(false) }}
+          - Is regular file: {{ source_check.stat.isreg | default(false) }}
           - Expected: .tar.gz file that exists
       when: >
-        source_check.stat.exists == false or
-        source_check.stat.isfile == false or
-        source_archive.endswith('.tar.gz') == false
+        (source_check.stat.exists | default(false)) == false or
+        (source_check.stat.isreg | default(false)) == false or
+        (source_archive.endswith('.tar.gz')) == false
       tags: [extract, validation]
     
     - name: Check if target user exists

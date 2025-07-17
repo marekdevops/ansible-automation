@@ -714,24 +714,34 @@ ansible-playbook -i inventory playbooks/diagnose_disk_issue.yml --tags recommend
 
 ### **Problem: Błędy walidacji stat w conditional check**
 
-**Rozwiązane - uproszczono walidację:** Błąd `conditional check 'not source_check.stat.exists' failed` podczas sprawdzania nieistniejących plików.
+**✅ ROZWIĄZANO:** Błąd `conditional check 'not source_check.stat.exists' failed` podczas sprawdzania nieistniejących plików.
 
 ```bash
-# Zastąpiono skomplikowaną walidację prostym sprawdzeniem:
-# - Czy plik istnieje (source_check.stat.exists)
-# - Czy to jest plik (source_check.stat.isfile) 
-# - Czy ma rozszerzenie .tar.gz
+# Problem był w niepoprawnym sprawdzaniu typu pliku
+# Ansible używa 'isreg' dla plików regularnych, nie 'isfile'
 
-# Teraz można bezpiecznie używać z nieistniejącymi plikami:
+# Poprawiona walidacja:
+when: >
+  (source_check.stat.exists | default(false)) == false or
+  (source_check.stat.isreg | default(false)) == false or
+  (source_archive.endswith('.tar.gz')) == false
+
+# Teraz można bezpiecznie używać:
 ansible-playbook -i inventory playbooks/extract_archive.yml \
   --extra-vars "source=./nieistniejacy.tar.gz dest=/tmp user=root"
 ```
 
-**Co zostało uproszczone:**
-- Usunięto skomplikowane sprawdzenia `source_check.stat is undefined`
-- Zastąpiono wieloma prostymi warunkami w jednej linii
-- Ulepszono komunikaty błędów z bardziej szczegółowymi informacjami
-- Poprawiono w playbookach: `extract_archive.yml`, `archive_directory.yml`, `create_lvm/tasks/main.yml`
+**Co zostało poprawione:**
+- Zmieniono `isfile` na `isreg` (właściwy atrybut Ansible)
+- Dodano `| default(false)` do wszystkich sprawdzeń stat
+- Uproszczono warunki walidacji
+- Poprawiono komunikaty błędów z bardziej szczegółowymi informacjami
+- Przetestowano z istniejącymi i nieistniejącymi plikami
+
+**Pliki poprawione:**
+- `playbooks/extract_archive.yml` - główny playbook
+- `playbooks/archive_directory.yml` - archiwizacja katalogów  
+- `roles/create_lvm/tasks/main.yml` - walidacja dysków LVM
 
 ### **Problem: Błędy archiwizacji**
 
