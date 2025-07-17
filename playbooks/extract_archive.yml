@@ -1,0 +1,249 @@
+---
+- name: Extract and deploy archive with ownership management
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  vars:
+    # Default values - can be overridden with --extra-vars
+    source_archive: "{{ source | default('') }}"
+    destination_directory: "{{ dest | default('') }}"
+    target_user: "{{ user | default('') }}"
+    
+  tasks:
+    - name: Validate required parameters
+      fail:
+        msg: |
+          Required parameters missing:
+          - 'source' is required. Use --extra-vars 'source=/path/to/archive.tar.gz'
+          - 'dest' is required. Use --extra-vars 'dest=/path/to/destination'
+          - 'user' is required. Use --extra-vars 'user=username'
+          
+          Example: --extra-vars "source=./backups/myfile.tar.gz dest=/opt/myapp user=appuser"
+      when: (source_archive == "" or source_archive is undefined) or (destination_directory == "" or destination_directory is undefined) or (target_user == "" or target_user is undefined)
+      tags: [extract, validation]
+    
+    - name: Check if source archive exists locally
+      stat:
+        path: "{{ source_archive | expanduser }}"
+      register: source_check
+      delegate_to: localhost
+      tags: [extract, validation]
+    
+    - name: Fail if source archive does not exist
+      fail:
+        msg: "Source archive {{ source_archive | expanduser }} does not exist on localhost"
+      when: not source_check.stat.exists or not source_check.stat.isfile
+      tags: [extract, validation]
+    
+    - name: Validate archive format
+      fail:
+        msg: "Source file must be a .tar.gz archive. Got: {{ source_archive }}"
+      when: not source_archive.endswith('.tar.gz')
+      tags: [extract, validation]
+    
+    - name: Check if target user exists
+      getent:
+        database: passwd
+        key: "{{ target_user }}"
+      register: user_check
+      failed_when: false
+      tags: [extract, validation]
+    
+    - name: Fail if target user does not exist
+      fail:
+        msg: "User '{{ target_user }}' does not exist on {{ inventory_hostname }}"
+      when: user_check.ansible_facts.getent_passwd[target_user] is undefined
+      tags: [extract, validation]
+    
+    - name: Get source archive size
+      stat:
+        path: "{{ source_archive | expanduser }}"
+      register: archive_stat
+      delegate_to: localhost
+      tags: [extract, validation]
+    
+    - name: Get available space in /tmp on remote host
+      shell: "df -B1 /tmp | tail -1 | awk '{print $4}'"
+      register: tmp_space
+      changed_when: false
+      tags: [extract, validation]
+    
+    - name: Calculate required space (archive size + 50% buffer for extraction)
+      set_fact:
+        archive_size_bytes: "{{ archive_stat.stat.size }}"
+        available_space_bytes: "{{ tmp_space.stdout | int }}"
+        required_space_bytes: "{{ (archive_stat.stat.size * 1.5) | int }}"
+      tags: [extract, validation]
+    
+    - name: Display space information
+      debug:
+        msg: |
+          === SPACE VALIDATION ===
+          Archive: {{ source_archive | expanduser }}
+          Archive size: {{ (archive_size_bytes | int / 1024 / 1024) | round(2) }} MB
+          Available in /tmp: {{ (available_space_bytes | int / 1024 / 1024) | round(2) }} MB
+          Required space (with buffer): {{ (required_space_bytes | int / 1024 / 1024) | round(2) }} MB
+          {% if available_space_bytes | int >= required_space_bytes | int %}
+          ✅ Sufficient space available
+          {% else %}
+          ❌ Insufficient space in /tmp
+          {% endif %}
+      tags: [extract, validation]
+    
+    - name: Fail if insufficient space
+      fail:
+        msg: |
+          Insufficient space in /tmp directory on remote host.
+          Required: {{ (required_space_bytes | int / 1024 / 1024) | round(2) }} MB
+          Available: {{ (available_space_bytes | int / 1024 / 1024) | round(2) }} MB
+      when: available_space_bytes | int < required_space_bytes | int
+      tags: [extract, validation]
+    
+    - name: Generate remote archive filename
+      set_fact:
+        remote_archive_name: "extract_{{ ansible_date_time.epoch }}_{{ source_archive | basename }}"
+        remote_archive_path: "/tmp/extract_{{ ansible_date_time.epoch }}_{{ source_archive | basename }}"
+      tags: [extract, upload]
+    
+    - name: Display upload information
+      debug:
+        msg: |
+          === UPLOAD INFORMATION ===
+          Local archive: {{ source_archive | expanduser }}
+          Remote archive: {{ remote_archive_path }}
+          Destination: {{ destination_directory }}
+          Target user: {{ target_user }}
+      tags: [extract, upload]
+    
+    - name: Copy archive to remote host
+      copy:
+        src: "{{ source_archive | expanduser }}"
+        dest: "{{ remote_archive_path }}"
+        mode: '0644'
+      tags: [extract, upload]
+    
+    - name: Verify uploaded archive
+      stat:
+        path: "{{ remote_archive_path }}"
+      register: remote_archive_stat
+      tags: [extract, upload]
+    
+    - name: Display upload results
+      debug:
+        msg: |
+          === UPLOAD COMPLETED ===
+          Remote archive: {{ remote_archive_path }}
+          Size: {{ (remote_archive_stat.stat.size / 1024 / 1024) | round(2) }} MB
+          ✅ Archive successfully uploaded to remote host
+      tags: [extract, upload]
+    
+    - name: Create destination directory if it doesn't exist
+      file:
+        path: "{{ destination_directory }}"
+        state: directory
+        mode: '0755'
+        owner: "{{ target_user }}"
+        group: "{{ target_user }}"
+      tags: [extract, prepare]
+    
+    - name: Check if destination directory is empty
+      find:
+        paths: "{{ destination_directory }}"
+        file_type: any
+      register: dest_contents
+      tags: [extract, prepare]
+    
+    - name: Warn if destination directory is not empty
+      debug:
+        msg: |
+          ⚠️  WARNING: Destination directory {{ destination_directory }} is not empty!
+          Found {{ dest_contents.matched }} items. Archive will be extracted into this directory.
+      when: dest_contents.matched > 0
+      tags: [extract, prepare]
+    
+    - name: Extract archive to destination
+      unarchive:
+        src: "{{ remote_archive_path }}"
+        dest: "{{ destination_directory }}"
+        remote_src: yes
+        creates: false
+        owner: "{{ target_user }}"
+        group: "{{ target_user }}"
+        mode: preserve
+      register: extract_result
+      tags: [extract, deploy]
+    
+    - name: Get extracted content information
+      find:
+        paths: "{{ destination_directory }}"
+        recurse: yes
+        file_type: any
+      register: extracted_files
+      tags: [extract, deploy]
+    
+    - name: Change ownership recursively
+      file:
+        path: "{{ destination_directory }}"
+        state: directory
+        owner: "{{ target_user }}"
+        group: "{{ target_user }}"
+        recurse: yes
+      tags: [extract, ownership]
+    
+    - name: Display extraction results
+      debug:
+        msg: |
+          === EXTRACTION COMPLETED ===
+          Archive extracted to: {{ destination_directory }}
+          Total files extracted: {{ extracted_files.matched }}
+          Owner set to: {{ target_user }}:{{ target_user }}
+          ✅ Archive successfully extracted and deployed
+      tags: [extract, deploy]
+    
+    - name: Cleanup remote archive
+      file:
+        path: "{{ remote_archive_path }}"
+        state: absent
+      tags: [extract, cleanup]
+    
+    - name: Verify final ownership
+      shell: "ls -la {{ destination_directory }} | head -10"
+      register: ownership_check
+      changed_when: false
+      tags: [extract, verify]
+    
+    - name: Display ownership verification
+      debug:
+        msg: |
+          === OWNERSHIP VERIFICATION ===
+          Directory listing (first 10 items):
+          {{ ownership_check.stdout }}
+      tags: [extract, verify]
+    
+    - name: Create deployment summary
+      set_fact:
+        deployment_summary:
+          source_archive: "{{ source_archive | expanduser }}"
+          destination: "{{ destination_directory }}"
+          target_user: "{{ target_user }}"
+          archive_size_mb: "{{ (archive_size_bytes | int / 1024 / 1024) | round(2) }}"
+          files_extracted: "{{ extracted_files.matched }}"
+          deployed_date: "{{ ansible_date_time.iso8601 }}"
+          remote_host: "{{ inventory_hostname }}"
+      tags: [extract, summary]
+    
+    - name: Display final summary
+      debug:
+        msg: |
+          === DEPLOYMENT SUMMARY ===
+          Host: {{ deployment_summary.remote_host }}
+          Source archive: {{ deployment_summary.source_archive }}
+          Archive size: {{ deployment_summary.archive_size_mb }} MB
+          Destination: {{ deployment_summary.destination }}
+          Target user: {{ deployment_summary.target_user }}
+          Files extracted: {{ deployment_summary.files_extracted }}
+          Deployed: {{ deployment_summary.deployed_date }}
+          
+          🎉 Archive extraction and deployment completed successfully!
+      tags: [extract, summary]

@@ -103,22 +103,69 @@ ansible-playbook -i inventory playbooks/create_multiple_lvm.yml --tags create_lv
 
 ### 6. **Archiwizacja i backup katalogów**
 
+**UWAGA:** Oba parametry `source_dir` i `local_dest` są WYMAGANE!
+
 ```bash
-# Podstawowa archiwizacja katalogu (WYMAGANE: source_dir i local_dest)
-ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/etc local_dest=/home/user/backups"
+# Podstawowa archiwizacja katalogu
+ansible-playbook -i inventory playbooks/archive_directory.yml \
+  --extra-vars "source_dir=/etc local_dest=/home/user/backups"
 
 # Archiwizacja z niestandardową nazwą archiwum
-ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/etc local_dest=~/backups archive_name_override=system_config_backup.tar.gz"
+ansible-playbook -i inventory playbooks/archive_directory.yml \
+  --extra-vars "source_dir=/etc local_dest=~/backups archive_name_override=system_config_backup.tar.gz"
 
 # Archiwizacja z automatycznym usuwaniem pliku zdalnego
-ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/var/log local_dest=/tmp/my_backups cleanup=true"
+ansible-playbook -i inventory playbooks/archive_directory.yml \
+  --extra-vars "source_dir=/var/log local_dest=/tmp/my_backups cleanup=true"
 
 # Archiwizacja z wysoką kompresją do określonego katalogu
-ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/home/user/documents local_dest=/backup/archives compression=9"
+ansible-playbook -i inventory playbooks/archive_directory.yml \
+  --extra-vars "source_dir=/home/user/documents local_dest=/backup/archives compression=9"
 
 # Archiwizacja do katalogu domowego użytkownika (~ zostanie rozwinięte)
-ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/etc local_dest=~/system_backups"
+ansible-playbook -i inventory playbooks/archive_directory.yml \
+  --extra-vars "source_dir=/etc local_dest=~/system_backups"
 ```
+
+**Parametry archiwizacji:**
+
+| Parametr | Wymagany | Domyślna | Opis | Przykład |
+|----------|----------|----------|------|----------|
+| `source_dir` | **TAK** | - | Katalog do archiwizacji | `/etc`, `/var/log` |
+| `local_dest` | **TAK** | - | Lokalny katalog docelowy | `~/backups`, `/tmp/archives` |
+| `archive_name_override` | Nie | auto | Nazwa archiwum | `backup.tar.gz` |
+| `compression` | Nie | `6` | Poziom kompresji (1-9) | `9` (najwyższa) |
+| `cleanup` | Nie | `false` | Usuń plik zdalny | `true`/`false` |
+
+### 7. **Ekstrakcja i wdrażanie archiwów**
+
+**UWAGA:** Wszystkie 3 parametry `source`, `dest` i `user` są WYMAGANE!
+
+```bash
+# Podstawowa ekstrakcja archiwum
+ansible-playbook -i inventory playbooks/extract_archive.yml \
+  --extra-vars "source=./backups/myapp.tar.gz dest=/opt/myapp user=appuser"
+
+# Wdrożenie systemu z archiwum domowego
+ansible-playbook -i inventory playbooks/extract_archive.yml \
+  --extra-vars "source=~/backups/system_config.tar.gz dest=/etc user=root"
+
+# Wdrożenie aplikacji użytkownika
+ansible-playbook -i inventory playbooks/extract_archive.yml \
+  --extra-vars "source=/backup/webapp.tar.gz dest=/home/webuser/app user=webuser"
+
+# Przywrócenie katalogu z pełną ścieżką
+ansible-playbook -i inventory playbooks/extract_archive.yml \
+  --extra-vars "source=/tmp/restore_data.tar.gz dest=/var/lib/myservice user=service"
+```
+
+**Parametry ekstrakcji:**
+
+| Parametr | Wymagany | Opis | Przykład |
+|----------|----------|------|----------|
+| `source` | **TAK** | Lokalny plik tar.gz | `./backups/app.tar.gz`, `~/archive.tar.gz` |
+| `dest` | **TAK** | Katalog docelowy na zdalnym hoście | `/opt/app`, `/home/user/restore` |
+| `user` | **TAK** | Właściciel plików po ekstrakcji | `appuser`, `root`, `webuser` |
 
 ## 📁 Struktura plików
 
@@ -149,7 +196,8 @@ ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "sour
 │   ├── diagnose_disk_issue.yml            # Diagnostyka problemów
 │   ├── demo_directory_creation.yml        # Demo możliwości tworzenia katalogów
 │   ├── archive_directory.yml              # Archiwizacja katalogów z kompresją
-│   └── archive_directory_demo.yml         # Demo archiwizacji
+│   ├── archive_directory_demo.yml         # Demo archiwizacji
+│   └── extract_archive.yml                # Ekstrakcja i wdrażanie archiwów
 ├── inventory                               # Plik inventory
 └── README.md                              # Ten plik
 ```
@@ -233,6 +281,22 @@ ansible-playbook playbook.yml --skip-tags archive
 - Kompresję z konfigurowalnymi poziomami
 - Kopiowanie na localhost
 - Opcjonalne czyszczenie plików zdalnych
+
+### **Tag: `extract`**
+Operacje ekstrakcji i wdrażania archiwów.
+
+```bash
+# Przykłady użycia
+ansible-playbook playbook.yml --tags extract
+ansible-playbook playbook.yml --skip-tags extract
+```
+
+**Zawiera:**
+- Walidację archiwów i przestrzeni
+- Kopiowanie archiwów na zdalny host
+- Ekstrakcję do docelowych katalogów
+- Zarządzanie właścicielami plików
+- Rekurencyjne ustawienie uprawnień
 
 ## 📖 Szczegółowe przykłady
 
@@ -469,11 +533,21 @@ ansible-playbook -i inventory playbooks/complete_disk_workflow.yml --tags lsblk 
 # 7. Pomiń operacje na dyskach (dla innych zadań)
 ansible-playbook -i inventory full_server_setup.yml --skip-tags lsblk,create_lvm
 
-# 8. Archiwizuj konfigurację systemu
-ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/etc local_dest=~/backups cleanup=true"
+# 8. Archiwizuj konfigurację systemu (wymagane: source_dir i local_dest)
+ansible-playbook -i inventory playbooks/archive_directory.yml \
+  --extra-vars "source_dir=/etc local_dest=~/backups cleanup=true"
 
 # 9. Backup z wysoką kompresją
-ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/var/log local_dest=/backup/logs compression=9 cleanup=true"
+ansible-playbook -i inventory playbooks/archive_directory.yml \
+  --extra-vars "source_dir=/var/log local_dest=/backup/logs compression=9 cleanup=true"
+
+# 10. Wdróż aplikację z archiwum (wymagane: source, dest, user)
+ansible-playbook -i inventory playbooks/extract_archive.yml \
+  --extra-vars "source=./backups/myapp.tar.gz dest=/opt/myapp user=appuser"
+
+# 11. Przywróć konfigurację systemu
+ansible-playbook -i inventory playbooks/extract_archive.yml \
+  --extra-vars "source=~/backups/system_config.tar.gz dest=/etc user=root"
 ```
 
 ### **Rekomendowane podejścia:**
@@ -647,11 +721,13 @@ df -h /tmp
 # Demo archiwizacji
 ansible-playbook -i inventory playbooks/archive_directory_demo.yml --tags demo
 
-# Test z walidacją miejsca
-ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/etc local_dest=/tmp/test" --tags validation
+# Test z walidacją miejsca (wymagane: source_dir i local_dest)
+ansible-playbook -i inventory playbooks/archive_directory.yml \
+  --extra-vars "source_dir=/etc local_dest=/tmp/test" --tags validation
 
 # Archiwizacja z debugowaniem
-ansible-playbook -i inventory playbooks/archive_directory.yml --extra-vars "source_dir=/etc local_dest=~/debug_backups" -vv
+ansible-playbook -i inventory playbooks/archive_directory.yml \
+  --extra-vars "source_dir=/etc local_dest=~/debug_backups" -vv
 ```
 
 **Częste problemy z archiwizacją:**
