@@ -33,7 +33,7 @@
     - name: Fail if source directory does not exist
       fail:
         msg: "Source directory {{ source_directory }} does not exist"
-      when: not source_check.stat.exists or not source_check.stat.isdir
+      when: (source_check.stat is undefined) or (not source_check.stat.exists) or (source_check.stat.exists and not source_check.stat.isdir)
       tags: [archive, validation]
     
     - name: Get source directory size

@@ -33,7 +33,7 @@
     - name: Fail if source archive does not exist
       fail:
         msg: "Source archive {{ source_archive | expanduser }} does not exist on localhost"
-      when: not source_check.stat.exists or not source_check.stat.isfile
+      when: (source_check.stat is undefined) or (not source_check.stat.exists) or (source_check.stat.exists and not source_check.stat.isfile)
       tags: [extract, validation]
     
     - name: Validate archive format
@@ -74,6 +74,7 @@
         archive_size_bytes: "{{ archive_stat.stat.size }}"
         available_space_bytes: "{{ tmp_space.stdout | int }}"
         required_space_bytes: "{{ (archive_stat.stat.size * 1.5) | int }}"
+      when: archive_stat.stat is defined and archive_stat.stat.exists
       tags: [extract, validation]
     
     - name: Display space information
