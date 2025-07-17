@@ -148,6 +148,22 @@
           ✅ Archive successfully uploaded to remote host
       tags: [extract, upload]
     
+    - name: Check archive structure to suggest strip_components
+      shell: "tar -tzf {{ remote_archive_path }} | head -10"
+      register: archive_contents
+      tags: [extract, prepare]
+    
+    - name: Display archive structure information
+      debug:
+        msg: |
+          === ARCHIVE STRUCTURE ===
+          Archive contents (first 10 items):
+          {{ archive_contents.stdout }}
+          
+          💡 TIP: If all files are in a single top-level directory and you want to extract
+          directly to {{ destination_directory }}, use: strip_dirs=1
+      tags: [extract, prepare]
+    
     - name: Create destination directory if it doesn't exist
       file:
         path: "{{ destination_directory }}"
