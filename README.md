@@ -142,21 +142,21 @@ ansible-playbook -i inventory playbooks/archive_directory.yml \
 **UWAGA:** Wszystkie 3 parametry `source`, `dest` i `user` są WYMAGANE!
 
 ```bash
-# Podstawowa ekstrakcja archiwum
+# Podstawowa ekstrakcja archiwum (zachowuje strukturę katalogów)
 ansible-playbook -i inventory playbooks/extract_archive.yml \
   --extra-vars "source=./backups/myapp.tar.gz dest=/opt/myapp user=appuser"
 
-# Wdrożenie z zachowaniem oryginalnych uprawnień z archiwum
+# Ekstrakcja z pominięciem głównego katalogu (strip_dirs=1)
 ansible-playbook -i inventory playbooks/extract_archive.yml \
-  --extra-vars "source=~/backups/system_config.tar.gz dest=/etc user=root preserve_perms=true"
+  --extra-vars "source=./backups/myapp.tar.gz dest=/opt/myapp user=appuser strip_dirs=1"
 
-# Wdrożenie aplikacji użytkownika z bezpiecznymi uprawnieniami
+# Wdrożenie z zachowaniem oryginalnych uprawnień i pominięciem głównego katalogu
 ansible-playbook -i inventory playbooks/extract_archive.yml \
-  --extra-vars "source=/backup/webapp.tar.gz dest=/home/webuser/app user=webuser"
+  --extra-vars "source=~/backups/system_config.tar.gz dest=/etc user=root preserve_perms=true strip_dirs=1"
 
-# Przywrócenie katalogu z zachowaniem oryginalnych uprawnień
+# Przywrócenie katalogu z pominięciem dwóch poziomów katalogów
 ansible-playbook -i inventory playbooks/extract_archive.yml \
-  --extra-vars "source=/tmp/restore_data.tar.gz dest=/var/lib/myservice user=service preserve_perms=true"
+  --extra-vars "source=/tmp/restore_data.tar.gz dest=/var/lib/myservice user=service strip_dirs=2"
 ```
 
 **Parametry ekstrakcji:**
@@ -167,12 +167,20 @@ ansible-playbook -i inventory playbooks/extract_archive.yml \
 | `dest` | **TAK** | - | Katalog docelowy na zdalnym hoście | `/opt/app`, `/home/user/restore` |
 | `user` | **TAK** | - | Właściciel plików po ekstrakcji | `appuser`, `root`, `webuser` |
 | `preserve_perms` | Nie | `false` | Zachowaj oryginalne uprawnienia z archiwum | `true`/`false` |
+| `strip_dirs` | Nie | `0` | Pomiń N poziomów katalogów z archiwum | `1`, `2` |
 
-**Uwagi dotyczące uprawnień:**
-- **Domyślnie** (`preserve_perms=false`): Bezpieczne uprawnienia (644 dla plików, 755 dla katalogów)
-- **Z `preserve_perms=true`**: Zachowuje oryginalne uprawnienia z archiwum tar.gz
-- **Właściciel**: Zawsze ustawiany na wskazanego użytkownika niezależnie od opcji
-- **Grupa**: Zawsze ustawiana na wskazanego użytkownika niezależnie od opcji
+**Uwagi dotyczące struktury katalogów:**
+- **Domyślnie** (`strip_dirs=0`): Zachowuje pełną strukturę z archiwum
+- **Z `strip_dirs=1`**: Pomija główny katalog - zawartość `myapp/` trafia bezpośrednio do `dest`
+- **Z `strip_dirs=2`**: Pomija dwa poziomy katalogów
+- **Playbook wyświetla strukturę archiwum** i podpowiada czy użyć `strip_dirs=1`
+
+**Przykłady struktury:**
+```bash
+# Archiwum zawiera: myapp/src/app.py, myapp/config/settings.yml
+# Bez strip_dirs: /opt/myapp/myapp/src/app.py
+# Z strip_dirs=1: /opt/myapp/src/app.py  ← ZALECANE
+```
 
 ## 📁 Struktura plików
 

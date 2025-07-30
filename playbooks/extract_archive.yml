@@ -2,7 +2,7 @@
 - name: Extract and deploy archive with ownership management
   hosts: all
   gather_facts: yes
-  become: yes
+  become: no
   
   vars:
     # Default values - can be overridden with --extra-vars
